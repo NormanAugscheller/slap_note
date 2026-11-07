@@ -162,6 +162,18 @@ final class ReminderTests: XCTestCase {
         XCTAssertEqual(UNCalendarNotificationTrigger(dateMatching: comps, repeats: false).nextTriggerDate(), reminder)
     }
 
+    func testFractionalReminderTimeIsNormalizedEverywhere() throws {
+        let raw = Date().addingTimeInterval(2 * 24 * 3600).rounded(toSeconds: 1).addingTimeInterval(0.75)
+        var reminder = ReminderRecord(date: raw)
+        XCTAssertEqual(reminder.date.timeIntervalSince1970, raw.timeIntervalSince1970.rounded(.down))
+        let comps = ReminderSchedule.triggerComponents(for: reminder.date)
+        XCTAssertEqual(UNCalendarNotificationTrigger(dateMatching: comps, repeats: false).nextTriggerDate(), reminder.date)
+        reminder.date = raw.addingTimeInterval(60)
+        XCTAssertEqual(reminder.date.timeIntervalSince1970.truncatingRemainder(dividingBy: 1), 0)
+        let encoded = try NoteStore.makeEncoder().encode(reminder)
+        XCTAssertEqual(try NoteStore.makeDecoder().decode(ReminderRecord.self, from: encoded), reminder)
+    }
+
     func testNotificationIdentifierIsPerReminderInstance() {
         let id = UUID()
         let a = ReminderSchedule.notificationIdentifier(noteID: id, date: date(2026, 11, 6, 20, 0))

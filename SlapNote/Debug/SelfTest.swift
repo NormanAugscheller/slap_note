@@ -13,6 +13,7 @@ final class SelfTest {
     private let manager: NoteManager
     private var failures: [String] = []
     private var steps: [(String, TimeInterval, () -> Void)] = []
+    private var restoreReminder: ReminderRecord?
 
     static var isRequested: Bool { UserDefaults.standard.bool(forKey: "SlapNoteSelfTest") }
 
@@ -128,6 +129,21 @@ final class SelfTest {
             m.newNote(text: "throw me")
             if let c = m.placement?.note { m.noteRequestsCancelPlacement(c) }
             self.check(!m.isPlacing && m.notes.count == 1, "Esc discards the hanging note")
+        }
+        step("discard scheduled reminder", after: 0.5) {
+            guard let c = m.notes.first else { return }
+            let original = c.record
+            let due = Date().addingTimeInterval(3600)
+            c.setReminder(ReminderRecord(date: due))
+            c.markReminderScheduled(for: ReminderRecord.normalized(due))
+            m.noteRequestsDiscard(c)
+            self.check(m.lastDiscarded?.reminder?.scheduledWithSystem == false,
+                       "a discarded note no longer counts on its cancelled system notification")
+            self.restoreReminder = original.reminder
+        }
+        step("restore scheduled reminder", after: 1.0) {
+            m.restoreLastNote()
+            m.notes.last?.setReminder(self.restoreReminder)
         }
         step("long note", after: 1.0) {
             m.newNote(text: (1...400).map { "line \($0)" }.joined(separator: "\n"))

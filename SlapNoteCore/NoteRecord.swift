@@ -16,7 +16,17 @@ public struct DisplayPosition: Codable, Equatable, Sendable {
 }
 
 public struct ReminderRecord: Codable, Equatable, Sendable {
-    public var date: Date
+    /// Always a whole second (see `ReminderRecord.normalized`), so the stored time, the notification
+    /// identifier, the in-app timer and the system trigger all name exactly the same instant.
+    public var date: Date {
+        didSet { if date != Self.normalized(date) { date = Self.normalized(date) } }
+    }
+
+    /// Drops fractions of a second. The picker only produces whole minutes; this keeps other sources
+    /// (and the ISO 8601 file format, which stores whole seconds) consistent.
+    public static func normalized(_ date: Date) -> Date {
+        Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))
+    }
     /// The reminder time has passed and the "due" behavior was triggered.
     public var fired: Bool
     /// The user interacted with the note after it fired (stops wiggling).
@@ -26,7 +36,7 @@ public struct ReminderRecord: Codable, Equatable, Sendable {
     public var scheduledWithSystem: Bool
 
     public init(date: Date, fired: Bool = false, acknowledged: Bool = false, scheduledWithSystem: Bool = false) {
-        self.date = date
+        self.date = Self.normalized(date)
         self.fired = fired
         self.acknowledged = acknowledged
         self.scheduledWithSystem = scheduledWithSystem
@@ -36,7 +46,7 @@ public struct ReminderRecord: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        date = try c.decode(Date.self, forKey: .date)
+        date = Self.normalized(try c.decode(Date.self, forKey: .date))
         fired = try c.decodeIfPresent(Bool.self, forKey: .fired) ?? false
         acknowledged = try c.decodeIfPresent(Bool.self, forKey: .acknowledged) ?? fired
         scheduledWithSystem = try c.decodeIfPresent(Bool.self, forKey: .scheduledWithSystem) ?? false

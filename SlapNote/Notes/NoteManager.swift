@@ -69,6 +69,7 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         reminders.onDue = { [weak self] ids in self?.remindersDue(ids) }
         reminders.onNotificationClicked = { [weak self] id in self?.notificationClicked(id) }
         reminders.onScheduled = { [weak self] id, date in self?.controller(for: id)?.markReminderScheduled(for: date) }
+        reminders.onUnscheduled = { [weak self] id in self?.controller(for: id)?.markReminderUnscheduled() }
         reminders.start()
         reminders.rearm(notes: records)
         reminders.sync(notes: records)
@@ -245,6 +246,7 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         if Self.isWorthKeeping(c.record) {
             var r = c.record
             r.rotation = Double.random(in: -2...2)
+            r.reminder?.scheduledWithSystem = false
             lastDiscarded = r
         }
         ThrowAnimator.throwAway(c.view, window: c.window, color: c.record.color) {
@@ -282,7 +284,10 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         guard note.mode == .stuck else { return }
         note.setMode(.leaving)
         notes.removeAll { $0 === note }
-        lastDiscarded = note.record
+        // Discarding cancels the system request; a restored note must not count on it any more.
+        var discarded = note.record
+        discarded.reminder?.scheduledWithSystem = false
+        lastDiscarded = discarded
         reminders.cancel(noteID: note.record.id)
         if note.isHovered { NoteAnimator.hover(note.view, on: false) }
         note.stopAttention()

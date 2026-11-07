@@ -246,6 +246,14 @@ final class NoteController: NSObject, NSTextViewDelegate, NoteMouseHandling {
         delegate?.noteDidChange(self)
     }
 
+    /// The system request for the pending reminder is gone; SlapNote announces it itself unless a new one is accepted.
+    func markReminderUnscheduled() {
+        guard var r = record.reminder, r.scheduledWithSystem, !r.fired else { return }
+        r.scheduledWithSystem = false
+        record.reminder = r
+        delegate?.noteDidChange(self)
+    }
+
     func markReminderFired() {
         guard var r = record.reminder else { return }
         r.fired = true
