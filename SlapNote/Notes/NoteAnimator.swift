@@ -72,8 +72,16 @@ enum NoteAnimator {
             f.repeatCount = .infinity
             f.timingFunctions = [Motion.easeInOut, Motion.easeInOut, Motion.easeInOut, Motion.easeInOut]
             flutter.add(f, forKey: "flutter")
-        } else {
+        } else if flutter.animation(forKey: "flutter") != nil {
+            // Ease back from wherever the flutter currently is instead of snapping flat.
+            let current = flutter.presentation()?.transform ?? CATransform3DIdentity
             flutter.removeAnimation(forKey: "flutter")
+            let back = CABasicAnimation(keyPath: "transform")
+            back.fromValue = NSValue(caTransform3D: current)
+            back.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+            back.duration = duration
+            back.timingFunction = Motion.easeOut
+            flutter.add(back, forKey: "flutterBack")
         }
     }
 

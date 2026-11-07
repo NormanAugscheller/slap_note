@@ -45,7 +45,7 @@ public struct PendulumSway: Sendable {
     public mutating func step(dt: Double, cursorVelocityX: Double) {
         guard dt > 0, dt.isFinite else { return }
         let dt = min(dt, 1.0 / 20)
-        // Moving right drags the bottom left: a counter-clockwise tilt is a positive angle.
+        // Moving right makes the lower edge lag behind (to the left): a clockwise, negative tilt.
         let target = min(max(-cursorVelocityX * gain, -Self.maxAngle), Self.maxAngle)
         let accel = -stiffness * (angle - target) - damping * velocity
         velocity += accel * dt
