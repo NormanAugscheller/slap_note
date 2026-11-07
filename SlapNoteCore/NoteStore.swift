@@ -105,6 +105,8 @@ public final class NoteStore {
     }
 
     public func load() -> NoteLoadResult {
+        writeBlock = nil
+        preservedCopyURL = nil
         if fileManager.fileExists(atPath: fileURL.path) {
             if let data = try? Data(contentsOf: fileURL), let file = try? NotesMigrator.decode(data) {
                 preserveIfNewer(data)
@@ -113,36 +115,79 @@ public final class NoteStore {
             // Corrupt main file: keep it for inspection, never overwrite the backup with it.
             moveCorruptFileAside()
             if let notes = loadBackup() {
-                try? save(notes)
+                if writeBlock == nil { try? save(notes) }
                 return NoteLoadResult(notes: notes, source: .backup, recoveredFromCorruption: true)
             }
             return NoteLoadResult(notes: [], source: .empty, recoveredFromCorruption: true)
         }
         if let notes = loadBackup() {
-            try? save(notes)
+            if writeBlock == nil { try? save(notes) }
             return NoteLoadResult(notes: notes, source: .backup, recoveredFromCorruption: false)
         }
         return NoteLoadResult(notes: [], source: .empty, recoveredFromCorruption: false)
     }
 
-    /// URL of the untouched copy kept when a file written by a newer SlapNote version is opened.
+    public enum WriteBlock: Equatable, Sendable {
+        /// The loaded file was written with this newer format version and no verified copy of it exists.
+        case newerVersionNotPreserved(version: Int)
+    }
+
+    public enum StoreError: Error, Equatable {
+        case writesBlocked(WriteBlock)
+    }
+
+    /// Why saving is refused, if it is. Set by `load()` when a file from a newer SlapNote version could
+    /// not be preserved: saving would destroy fields this version cannot represent.
+    public private(set) var writeBlock: WriteBlock?
+
+    /// The verified untouched copy made by the last `load()` when the loaded file came from a newer version.
+    public private(set) var preservedCopyURL: URL?
+
+    /// Preferred name of the untouched copy kept when a file written by a newer SlapNote version is opened.
     public func newerVersionCopyURL(version: Int) -> URL {
         directory.appendingPathComponent("notes.v\(version).json")
     }
 
     /// A file from a newer app version may hold fields this version does not know; saving would drop
-    /// them. Keep one untouched copy so going back to the newer version loses nothing.
+    /// them. Before anything is written, keep a copy of exactly the loaded bytes and read it back.
+    /// If that fails, every write is refused until the next `load()`.
     private func preserveIfNewer(_ data: Data) {
         guard let version = NotesMigrator.storedVersion(of: data), version > NotesFile.currentVersion else { return }
-        let target = newerVersionCopyURL(version: version)
-        guard !fileManager.fileExists(atPath: target.path) else { return }
-        try? data.write(to: target, options: [.atomic])
+        if let url = writeVerifiedCopy(data, version: version) {
+            preservedCopyURL = url
+        } else {
+            writeBlock = .newerVersionNotPreserved(version: version)
+        }
+    }
+
+    /// Reuses an identical existing copy, otherwise writes a new file that never replaces an existing one.
+    /// Returns nil if no verified copy could be made.
+    private func writeVerifiedCopy(_ data: Data, version: Int) -> URL? {
+        let stamp = Int(Date().timeIntervalSince1970)
+        let candidates = [newerVersionCopyURL(version: version)] + (0..<20).map { n in
+            directory.appendingPathComponent("notes.v\(version)-\(stamp)" + (n == 0 ? "" : "-\(n)") + ".json")
+        }
+        for url in candidates {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) {
+                if !isDirectory.boolValue, (try? Data(contentsOf: url)) == data { return url }
+                continue
+            }
+            do {
+                try data.write(to: url, options: [.withoutOverwriting])
+                return (try? Data(contentsOf: url)) == data ? url : nil
+            } catch {
+                return nil
+            }
+        }
+        return nil
     }
 
     private func loadBackup() -> [NoteRecord]? {
         guard let data = try? Data(contentsOf: backupURL), let file = try? NotesMigrator.decode(data) else {
             return nil
         }
+        preserveIfNewer(data)
         return file.notes
     }
 
@@ -155,7 +200,9 @@ public final class NoteStore {
 
     /// Atomic write (temporary file + rename) of the main file, then of the backup.
     /// The data is encoded once and verified to decode before anything is replaced.
+    /// Throws `StoreError.writesBlocked` while `writeBlock` is set.
     public func save(_ notes: [NoteRecord]) throws {
+        if let writeBlock { throw StoreError.writesBlocked(writeBlock) }
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try Self.makeEncoder().encode(NotesFile(notes: notes))
         _ = try NotesMigrator.decode(data)

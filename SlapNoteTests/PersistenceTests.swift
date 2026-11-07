@@ -143,6 +143,68 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(NotesMigrator.storedVersion(of: try Data(contentsOf: store.fileURL)), NotesFile.currentVersion)
     }
 
+    private func futureJSON(_ text: String) -> String {
+        """
+        {"version":7,"notes":[{"id":"7B0E6A0C-5E64-4A43-9C55-52B3F1A4E111","text":"\(text)","futureField":42,
+          "position":{"displayUUID":"X","relativeX":0.5,"relativeY":0.5}}]}
+        """
+    }
+
+    func testNewerFileIsNeverOverwrittenWhenCopyCannotBeMade() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let original = Data(futureJSON("keep me").utf8)
+        try original.write(to: store.fileURL)
+        try original.write(to: store.backupURL)
+        // Make every copy location unwritable: the directory itself becomes read-only after setup.
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path) }
+
+        let loaded = store.load()
+        XCTAssertEqual(loaded.notes.first?.text, "keep me")
+        XCTAssertEqual(store.writeBlock, .newerVersionNotPreserved(version: 7))
+        XCTAssertThrowsError(try store.save(loaded.notes)) { error in
+            XCTAssertEqual(error as? NoteStore.StoreError, .writesBlocked(.newerVersionNotPreserved(version: 7)))
+        }
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), original)
+        XCTAssertEqual(try Data(contentsOf: store.backupURL), original)
+    }
+
+    func testDirectoryAtCopyPathFallsBackToAnotherName() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: store.newerVersionCopyURL(version: 7), withIntermediateDirectories: true)
+        let original = Data(futureJSON("dir in the way").utf8)
+        try original.write(to: store.fileURL)
+        _ = store.load()
+        XCTAssertNil(store.writeBlock)
+        let copy = try XCTUnwrap(store.preservedCopyURL)
+        XCTAssertNotEqual(copy, store.newerVersionCopyURL(version: 7))
+        XCTAssertEqual(try Data(contentsOf: copy), original)
+    }
+
+    func testOlderCopyWithSameNameIsKeptAndLoadedStateIsCopiedToo() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let older = Data(futureJSON("older").utf8)
+        try older.write(to: store.newerVersionCopyURL(version: 7))
+        let current = Data(futureJSON("current").utf8)
+        try current.write(to: store.fileURL)
+        _ = store.load()
+        XCTAssertEqual(try Data(contentsOf: store.newerVersionCopyURL(version: 7)), older, "earlier copy untouched")
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.preservedCopyURL)), current)
+    }
+
+    func testNewerBackupIsPreservedBeforeItRepairsTheMainFile() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let backup = Data(futureJSON("from backup").utf8)
+        try backup.write(to: store.backupURL)
+        let loaded = store.load()
+        XCTAssertEqual(loaded.source, .backup)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.preservedCopyURL)), backup)
+        XCTAssertEqual(NotesMigrator.storedVersion(of: try Data(contentsOf: store.fileURL)), NotesFile.currentVersion)
+    }
+
     func testCurrentVersionFileMakesNoExtraCopy() throws {
         let store = NoteStore(directory: directory)
         try store.save([sampleNote()])
