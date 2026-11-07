@@ -281,7 +281,7 @@ commit (history rewritten before the first push).
 newer file gets its own verified copy (`preservedCopyURLs`); if one cannot be made, writes are blocked (D43).
 
 **D51 · A preserved copy must be an independent regular file** (finding 2): not a symbolic link, not a
-directory, exactly one hard link, exactly the loaded bytes. `save()` re-checks every copy right before it
+directory, exactly the loaded bytes (the hard-link rule was dropped again, see D58). `save()` re-checks every copy right before it
 replaces the files; a missing or changed copy is made again, otherwise the save is refused.
 
 **D52 · Quitting while a note hangs at the cursor slaps it** (finding 3) where it hangs, if it has text or a
@@ -315,6 +315,38 @@ front. If SlapNote itself is in front, the selection of its own text view is use
 
 **D56 · A drag or slap ends with a layout for the display under the note's center** (finding 7):
 `fit(to:)`, then the final position is recorded.
+
+## Codex review, round 3 (on `8248aa6`)
+
+All six findings were confirmed against the code and fixed with the owner's approval.
+
+**D57 · A notes file that exists but cannot be read blocks saving** (finding 1). "Missing" and "present but
+unreadable" are told apart; an unreadable `notes.json` or `notes.json.bak` could be a newer file, and an atomic
+save would replace it without its permissions mattering. New block reason `unreadableFile(name:)`. (An
+unreadable main file found at load is still moved aside like a corrupt one, which keeps its bytes.)
+
+**D58 · Every save checks what the two files hold now** (finding 2). `save()` reads both targets again right
+before writing, not only the state seen at load: a newer SlapNote running in parallel or a restored file is
+copied first, exactly like at load. A conflict dialog was rejected: the copy already keeps the data, and
+last writer wins for files of the same version. Hard links are accepted as copies again: saving replaces the
+notes file with a new file, so a hard-linked copy keeps the old bytes (test
+`testHardLinkToTheMainFileIsAKeptCopy`).
+
+**D59 · A write block is re-checked on every attempt** (finding 3). The bytes of every newer file are kept even
+while no copy exists, so a later attempt can still make it. A blocked save is retried like a failed one
+(5 s doubling to 5 min), and both alerts offer Try Again. The block lifts as soon as its cause is gone.
+
+**D60 · Reminders are synced again after the permission question and after a refused request** (finding 4).
+When the first authorization request is answered, all pending reminders are synced again. A refused
+registration is retried after 2, 4 and 8 s; every save tries again as before. Whether macOS refuses requests
+added before permission is granted was not verified; the re-sync is cheap either way.
+
+**D61 · A title change keeps the pending system request** (finding 5). Same note and same time means the same
+identifier, so the new request replaces the pending one directly instead of remove-then-add, and the
+acceptance flag is kept. Only a change of time removes the old request and clears the flag.
+
+**D62 · The ⌘C fallback's deadline wins over a change** (finding 6). `CopyFallback.outcome` checks the timeout
+first, so a change seen after 1 s is never read or restored over (as D54 intended).
 
 ## Open questions for the owner
 
