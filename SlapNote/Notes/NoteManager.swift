@@ -242,7 +242,7 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         recordPosition(of: c)
         c.window.makeFirstResponder(nil)
         // An empty note thrown away right after summoning does not replace a real discarded note.
-        if !c.record.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || c.record.reminder != nil {
+        if Self.isWorthKeeping(c.record) {
             var r = c.record
             r.rotation = Double.random(in: -2...2)
             lastDiscarded = r
@@ -251,6 +251,11 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
             c.close()
         }
         returnFocus()
+    }
+
+    /// A note with text or a reminder; an empty one is not worth restoring or saving on quit.
+    static func isWorthKeeping(_ record: NoteRecord) -> Bool {
+        !record.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || record.reminder != nil
     }
 
     func noteRequestsCancelPlacement(_ note: NoteController) {
@@ -650,11 +655,17 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
 
     /// Called before quitting: finishes editing and writes synchronously.
     /// Returns true if nothing would be lost by quitting now.
+    ///
+    /// A note still hanging at the cursor is not in `records`. If it holds text or a reminder it is
+    /// slapped where it hangs, so it is saved (and stays if the quit is cancelled); an empty one is thrown away.
     func prepareForTermination() -> Bool {
         editingNote?.endEditing()
         if let placement {
-            placement.end()
-            self.placement = nil
+            if Self.isWorthKeeping(placement.note.record) {
+                placementDidSlap(placement)
+            } else {
+                placementDidDiscard(placement)
+            }
         }
         guard hasUnsavedChanges || saveProblem != nil else { return true }
         return saveNow() || !hasUnsavedChanges

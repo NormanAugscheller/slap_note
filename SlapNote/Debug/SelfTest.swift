@@ -159,6 +159,15 @@ final class SelfTest {
             try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
             self.check(m.saveNow() && m.saveProblem == nil && !m.hasUnsavedChanges, "next save clears the problem")
         }
+        step("quit while placing", after: 0.5) {
+            m.newNote(text: "draft at quit")
+            let saved = m.prepareForTermination()
+            let draft = m.notes.first { $0.record.text == "draft at quit" }
+            self.check(saved && !m.isPlacing && draft != nil, "quitting while placing slaps the draft and saves it")
+            let onDisk = NoteStore(directory: m.store.directory).load().notes.contains { $0.text == "draft at quit" }
+            self.check(onDisk, "the slapped draft is in notes.json")
+            if let draft { m.noteRequestsDiscard(draft) }
+        }
         step("persist", after: 1.0) {
             m.saveNow()
             let loaded = NoteStore(directory: m.store.directory).load()
