@@ -32,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = StatusItemController(manager: manager) { [weak self] in self?.showSettings(intro: false) }
         statusItem?.setVisible(settings.showMenuBarIcon)
-        manager.onHiddenChanged = { [weak self] hidden in self?.statusItem?.updateIcon(hidden: hidden) }
+        manager.onHiddenChanged = { [weak self] _ in self?.statusItem?.updateIcon() }
+        manager.onSaveProblemChanged = { [weak self] problem in self?.saveProblemChanged(problem) }
+        if let problem = manager.saveProblem { saveProblemChanged(problem) }
         settingsObserver = NotificationCenter.default.addObserver(forName: AppSettings.didChange, object: settings, queue: .main) { [weak self] note in
             let key = note.userInfo?["key"] as? String
             MainActor.assumeIsolated {
@@ -67,8 +69,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// Quitting must not silently drop changes that could not be written.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let manager else { return .terminateNow }
+        #if DEBUG
+        if SelfTest.isRequested { return .terminateNow }
+        #endif
+        while !manager.prepareForTermination() {
+            switch SaveProblemAlert.askBeforeQuit(manager.saveProblem, directory: manager.store.directory) {
+            case .retry: continue
+            case .showFolder:
+                SaveProblemAlert.showFolder(manager.store.directory)
+                return .terminateCancel
+            case .quitAnyway: return .terminateNow
+            }
+        }
+        return .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        manager?.prepareForTermination()
+        _ = manager?.prepareForTermination()
+    }
+
+    // MARK: Save problems
+
+    /// The problem the user was already told about; the alert is not repeated on every retry.
+    private var announcedSaveProblem: NoteManager.SaveProblem?
+
+    private func saveProblemChanged(_ problem: NoteManager.SaveProblem?) {
+        statusItem?.updateIcon()
+        guard let problem else {
+            announcedSaveProblem = nil
+            return
+        }
+        guard announcedSaveProblem == nil else { return }
+        announcedSaveProblem = problem
+        announceSaveProblem()
+    }
+
+    /// Waits until no note is being placed or edited, so the alert does not interrupt typing.
+    private func announceSaveProblem() {
+        #if DEBUG
+        if SelfTest.isRequested { return }
+        #endif
+        guard let manager, let problem = manager.saveProblem else { return }
+        if manager.isPlacing || manager.isEditing {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.announceSaveProblem() }
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let manager = self.manager else { return }
+            if SaveProblemAlert.present(problem, directory: manager.store.directory) {
+                manager.saveNow()
+            }
+        }
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }

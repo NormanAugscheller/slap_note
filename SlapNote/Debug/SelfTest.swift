@@ -119,6 +119,19 @@ final class SelfTest {
             if let c = m.placement?.note { m.noteRequestsCancelPlacement(c) }
             self.check(!m.isPlacing && m.notes.count == 1, "Esc discards the hanging note")
         }
+        step("save failure", after: 1.0) {
+            let fm = FileManager.default
+            let path = m.store.directory.path
+            try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: path)
+            m.scheduleSave()
+            let saved = m.saveNow()
+            if case .failed = m.saveProblem { self.check(!saved, "failed save is reported") } else {
+                self.check(false, "failed save is reported")
+            }
+            self.check(m.hasUnsavedChanges && !m.prepareForTermination(), "quitting with unsaved changes is held back")
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+            self.check(m.saveNow() && m.saveProblem == nil && !m.hasUnsavedChanges, "next save clears the problem")
+        }
         step("persist", after: 1.0) {
             m.saveNow()
             let loaded = NoteStore(directory: m.store.directory).load()

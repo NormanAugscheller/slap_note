@@ -19,25 +19,41 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menu.delegate = self
             item.menu = menu
             self.item = item
-            updateIcon(hidden: manager.settings.notesHidden)
+            updateIcon()
         } else if !visible, let item {
             NSStatusBar.system.removeStatusItem(item)
             self.item = nil
         }
     }
 
-    func updateIcon(hidden: Bool) {
+    func updateIcon() {
         guard let button = item?.button else { return }
-        let name = hidden ? "note.text.badge.plus" : "note.text"
-        let image = NSImage(systemSymbolName: hidden ? "eye.slash" : name,
-                            accessibilityDescription: hidden ? "SlapNote (notes hidden)" : "SlapNote")
+        let hidden = manager.settings.notesHidden
+        let symbol: String
+        let description: String
+        if manager.saveProblem != nil {
+            symbol = "exclamationmark.triangle"
+            description = "SlapNote — notes are not saved"
+        } else if hidden {
+            symbol = "eye.slash"
+            description = "SlapNote — notes are hidden"
+        } else {
+            symbol = "note.text"
+            description = "SlapNote"
+        }
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
         image?.isTemplate = true
         button.image = image
-        button.toolTip = hidden ? "SlapNote — notes are hidden" : "SlapNote"
+        button.toolTip = description
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if manager.saveProblem != nil {
+            menu.addItem(withTitle: "Notes Not Saved — Try Again", action: #selector(retrySave), keyEquivalent: "").target = self
+            menu.addItem(withTitle: "Show Notes Folder", action: #selector(showFolder), keyEquivalent: "").target = self
+            menu.addItem(.separator())
+        }
         menu.addItem(withTitle: "New Note", action: #selector(newNote), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Note from Selection", action: #selector(noteFromSelection), keyEquivalent: "").target = self
         let hideTitle = manager.settings.notesHidden ? "Show All Notes" : "Hide All Notes"
@@ -60,6 +76,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         DispatchQueue.main.async { self.manager.noteFromSelection() }
     }
 
+    @objc private func retrySave() { manager.saveNow() }
+    @objc private func showFolder() { SaveProblemAlert.showFolder(manager.store.directory) }
     @objc private func toggleHidden() { manager.toggleHidden() }
     @objc private func restore() { manager.restoreLastNote() }
     @objc private func settings() { openSettings() }

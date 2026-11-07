@@ -40,6 +40,7 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
 
     var canRestore: Bool { lastDiscarded != nil }
     var isPlacing: Bool { placement != nil }
+    var isEditing: Bool { editingNote != nil }
 
     // MARK: Startup
 
@@ -86,7 +87,11 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.motionPreferenceChanged() }
         })
-        if result.recoveredFromCorruption || result.source == .backup { saveNow() }
+        if let block = store.writeBlock {
+            saveProblem = .blocked(block)
+        } else if result.recoveredFromCorruption || result.source == .backup {
+            saveNow()
+        }
     }
 
     var records: [NoteRecord] { notes.map(\.record) }
@@ -535,36 +540,85 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
 
     // MARK: Persistence
 
+    enum SaveProblem: Equatable {
+        /// Writing failed (disk full, folder not writable, …). Retried automatically.
+        case failed(message: String)
+        /// The store refuses writes to protect a file from a newer SlapNote version.
+        case blocked(NoteStore.WriteBlock)
+    }
+
+    /// Set while the notes on screen are not on disk. Cleared by the next successful save.
+    private(set) var saveProblem: SaveProblem? {
+        didSet { if saveProblem != oldValue { onSaveProblemChanged?(saveProblem) } }
+    }
+    /// Notifies the app (alert, menu bar icon) when saving starts or stops failing.
+    var onSaveProblemChanged: ((SaveProblem?) -> Void)?
+    /// Something changed since the last successful save.
+    private(set) var hasUnsavedChanges = false
+    private var retryWorkItem: DispatchWorkItem?
+    private var retryDelay: TimeInterval = NoteManager.firstRetryDelay
+    static let firstRetryDelay: TimeInterval = 5
+    static let maxRetryDelay: TimeInterval = 300
+
     func scheduleSave() {
+        hasUnsavedChanges = true
         saveWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.saveNow() }
+            MainActor.assumeIsolated { _ = self?.saveNow() }
         }
         saveWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.saveDelay, execute: item)
     }
 
-    func saveNow() {
+    /// Writes all notes now. Returns false if they are not on disk.
+    @discardableResult
+    func saveNow() -> Bool {
         saveWorkItem?.cancel()
         saveWorkItem = nil
+        retryWorkItem?.cancel()
+        retryWorkItem = nil
         let all = records
+        let saved: Bool
         do {
             try store.save(all)
+            saved = true
+            hasUnsavedChanges = false
+            retryDelay = Self.firstRetryDelay
+            saveProblem = nil
+        } catch NoteStore.StoreError.writesBlocked(let block) {
+            saved = false
+            saveProblem = .blocked(block)
         } catch {
+            saved = false
             NSLog("SlapNote: saving notes failed: %@", error.localizedDescription)
+            saveProblem = .failed(message: error.localizedDescription)
+            scheduleRetry()
         }
         reminders.sync(notes: all)
         reminders.rearm(notes: all)
+        return saved
     }
 
-    /// Called on quit: finish editing and write synchronously.
-    func prepareForTermination() {
+    /// Retries a failed save with a growing delay (5 s, 10 s, 20 s, … up to 5 min).
+    private func scheduleRetry() {
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { _ = self?.saveNow() }
+        }
+        retryWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay, execute: item)
+        retryDelay = min(retryDelay * 2, Self.maxRetryDelay)
+    }
+
+    /// Called before quitting: finishes editing and writes synchronously.
+    /// Returns true if nothing would be lost by quitting now.
+    func prepareForTermination() -> Bool {
         editingNote?.endEditing()
         if let placement {
             placement.end()
             self.placement = nil
         }
-        saveNow()
+        guard hasUnsavedChanges || saveProblem != nil else { return true }
+        return saveNow() || !hasUnsavedChanges
     }
 }
 
