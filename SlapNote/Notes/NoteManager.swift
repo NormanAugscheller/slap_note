@@ -400,12 +400,10 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
     private func returnFocus() {
         defer { previousApp = nil }
         guard NSApp.isActive, !isSettingsWindowKey(), editingNote == nil, placement == nil else { return }
-        if let app = previousApp, !app.isTerminated {
-            NSApp.yieldActivation(to: app)
-            app.activate()
-        } else {
-            NSApp.deactivate()
-        }
+        // No previous app means SlapNote itself was in front (e.g. the settings window): stay active.
+        guard let app = previousApp, !app.isTerminated else { return }
+        NSApp.yieldActivation(to: app)
+        app.activate()
     }
 
     // MARK: NoteControllerDelegate
