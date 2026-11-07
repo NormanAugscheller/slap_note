@@ -330,3 +330,23 @@ private extension Date {
         Date(timeIntervalSince1970: (timeIntervalSince1970 / step).rounded(.down) * step)
     }
 }
+
+final class CopyFallbackTests: XCTestCase {
+    func testExactlyOneChangeIsTheRequestedCopy() {
+        XCTAssertEqual(CopyFallback.outcome(before: 10, current: 10, elapsed: 0.1), .waiting)
+        XCTAssertEqual(CopyFallback.outcome(before: 10, current: 11, elapsed: 0.1), .copied)
+        XCTAssertEqual(CopyFallback.outcome(before: 10, current: 10, elapsed: CopyFallback.timeout), .timedOut)
+    }
+
+    func testAnotherWriterMakesThePasteboardUnclear() {
+        XCTAssertEqual(CopyFallback.outcome(before: 10, current: 12, elapsed: 0.1), .unclear)
+        XCTAssertFalse(CopyFallback.mayRestore(before: 10, current: 12), "someone wrote after the copy: keep theirs")
+        XCTAssertTrue(CopyFallback.mayRestore(before: 10, current: 11))
+    }
+
+    func testIncompleteSnapshotIsRejected() {
+        XCTAssertTrue(CopyFallback.snapshotIsComplete(typesPerItem: [3, 1], readablePerItem: [3, 1]))
+        XCTAssertFalse(CopyFallback.snapshotIsComplete(typesPerItem: [3, 1], readablePerItem: [2, 1]))
+        XCTAssertTrue(CopyFallback.snapshotIsComplete(typesPerItem: [], readablePerItem: []))
+    }
+}

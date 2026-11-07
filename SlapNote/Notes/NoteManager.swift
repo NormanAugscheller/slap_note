@@ -179,9 +179,17 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
             window.present()
             return
         }
-        SelectionGrabber.grabSelection { [weak self] text in
-            let cleaned = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            self?.newNote(text: String(cleaned.prefix(10_000)))
+        SelectionGrabber.grabSelection { [weak self] result in
+            switch result {
+            case .text(let text):
+                let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                self?.newNote(text: String(cleaned.prefix(10_000)))
+            case .nothing:
+                self?.newNote()
+            case .failed:
+                // The clipboard could not be protected, so SlapNote did not copy.
+                NSSound.beep()
+            }
         }
     }
 
