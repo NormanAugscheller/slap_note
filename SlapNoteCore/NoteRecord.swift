@@ -21,20 +21,25 @@ public struct ReminderRecord: Codable, Equatable, Sendable {
     public var fired: Bool
     /// The user interacted with the note after it fired (stops wiggling).
     public var acknowledged: Bool
+    /// macOS accepted the scheduled notification for this reminder, so the system delivers it — also
+    /// while SlapNote is not running. SlapNote then never posts one of its own.
+    public var scheduledWithSystem: Bool
 
-    public init(date: Date, fired: Bool = false, acknowledged: Bool = false) {
+    public init(date: Date, fired: Bool = false, acknowledged: Bool = false, scheduledWithSystem: Bool = false) {
         self.date = date
         self.fired = fired
         self.acknowledged = acknowledged
+        self.scheduledWithSystem = scheduledWithSystem
     }
 
-    private enum CodingKeys: String, CodingKey { case date, fired, acknowledged }
+    private enum CodingKeys: String, CodingKey { case date, fired, acknowledged, scheduledWithSystem }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         date = try c.decode(Date.self, forKey: .date)
         fired = try c.decodeIfPresent(Bool.self, forKey: .fired) ?? false
         acknowledged = try c.decodeIfPresent(Bool.self, forKey: .acknowledged) ?? fired
+        scheduledWithSystem = try c.decodeIfPresent(Bool.self, forKey: .scheduledWithSystem) ?? false
     }
 }
 

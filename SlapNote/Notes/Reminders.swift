@@ -8,6 +8,8 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
     var onNotificationClicked: ((UUID) -> Void)?
     /// Called when reminders become due while the app runs (or were missed while it was closed).
     var onDue: (([UUID]) -> Void)?
+    /// Called on the main actor when macOS accepted the notification for a note's reminder at a date.
+    var onScheduled: ((UUID, Date) -> Void)?
 
     private var timer: Timer?
     private var center: UNUserNotificationCenter { UNUserNotificationCenter.current() }
@@ -26,41 +28,49 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    /// What is currently scheduled with the system, so unchanged reminders are left alone.
-    private var scheduled: [String: (date: Date, title: String)] = [:]
+    private struct Scheduled: Equatable {
+        var identifier: String
+        var date: Date
+        var title: String
+    }
+
+    /// What is currently scheduled with the system per note, so unchanged reminders are left alone.
+    private var scheduled: [UUID: Scheduled] = [:]
 
     /// Brings the scheduled notifications in line with the pending reminders of `notes`. Only changed
     /// reminders are removed and re-added, so a save right before a reminder is due cannot drop it.
     func sync(notes: [NoteRecord]) {
         let now = Date()
-        var wanted: [String: (date: Date, title: String)] = [:]
+        var wanted: [UUID: Scheduled] = [:]
         for note in notes {
             guard let r = note.reminder, !r.fired, r.date > now else { continue }
-            wanted[note.id.uuidString] = (r.date, Self.title(for: note))
+            wanted[note.id] = Scheduled(identifier: ReminderSchedule.notificationIdentifier(noteID: note.id, date: r.date),
+                                        date: r.date, title: Self.title(for: note))
         }
-        let stale = scheduled.keys.filter { id in
-            guard let w = wanted[id], let s = scheduled[id] else { return true }
-            return w.date != s.date || w.title != s.title
-        }
-        if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: Array(stale)) }
-        for id in stale { scheduled[id] = nil }
+        let stale = scheduled.filter { id, s in wanted[id] != s }
+        if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: stale.values.map(\.identifier)) }
+        for id in stale.keys { scheduled[id] = nil }
         for (id, item) in wanted where scheduled[id] == nil {
             let content = UNMutableNotificationContent()
             content.title = item.title
             content.sound = .default
-            content.userInfo = ["noteID": id]
-            let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: item.date)
-            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
-            center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+            content.userInfo = ["noteID": id.uuidString]
+            let trigger = UNCalendarNotificationTrigger(dateMatching: ReminderSchedule.triggerComponents(for: item.date),
+                                                        repeats: false)
+            let date = item.date
+            center.add(UNNotificationRequest(identifier: item.identifier, content: content, trigger: trigger)) { [weak self] error in
+                guard error == nil else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { self?.onScheduled?(id, date) }
+                }
+            }
             scheduled[id] = item
         }
-        // Reminders that fired or were removed are no longer pending with the system.
-        for id in scheduled.keys where wanted[id] == nil { scheduled[id] = nil }
     }
 
     func cancel(noteID: UUID) {
-        center.removePendingNotificationRequests(withIdentifiers: [noteID.uuidString])
-        scheduled[noteID.uuidString] = nil
+        if let s = scheduled[noteID] { center.removePendingNotificationRequests(withIdentifiers: [s.identifier]) }
+        scheduled[noteID] = nil
     }
 
     static func title(for note: NoteRecord) -> String {
@@ -94,18 +104,17 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
         rearm(notes: notesProvider?() ?? [])
     }
 
-    /// Posts the notification for reminders the system did not deliver itself (passed while SlapNote
-    /// was not running, or the scheduled request went missing). Checks the delivered list first so the
-    /// user never gets the same reminder twice.
-    func postMissed(_ notes: [NoteRecord], after delay: TimeInterval = 0) {
-        guard !notes.isEmpty else { return }
-        if delay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.postMissed(notes)
-            }
-            return
+    /// Posts the notification for due reminders macOS never accepted a scheduled request for.
+    /// It uses the same identifier as the scheduled request would have, so if the system did deliver it
+    /// after all (the acceptance callback had not arrived yet), the delivered check skips it, and a
+    /// still-pending request is replaced instead of shown twice.
+    func postMissed(_ notes: [NoteRecord]) {
+        let items = notes.compactMap { note -> (id: String, noteID: String, title: String)? in
+            guard let r = note.reminder else { return nil }
+            return (ReminderSchedule.notificationIdentifier(noteID: note.id, date: r.date), note.id.uuidString,
+                    Self.title(for: note))
         }
-        let items = notes.map { (id: $0.id.uuidString, title: Self.title(for: $0)) }
+        guard !items.isEmpty else { return }
         center.getDeliveredNotifications { delivered in
             let deliveredIDs = Set(delivered.map(\.request.identifier))
             let center = UNUserNotificationCenter.current()
@@ -113,7 +122,7 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
                 let content = UNMutableNotificationContent()
                 content.title = item.title
                 content.sound = .default
-                content.userInfo = ["noteID": item.id]
+                content.userInfo = ["noteID": item.noteID]
                 center.add(UNNotificationRequest(identifier: item.id, content: content, trigger: nil))
             }
         }
@@ -128,7 +137,7 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let raw = response.notification.request.identifier
-        guard let id = UUID(uuidString: raw) else { return }
+        guard let id = ReminderSchedule.noteID(fromNotificationIdentifier: raw) else { return }
         await MainActor.run {
             self.onNotificationClicked?(id)
         }

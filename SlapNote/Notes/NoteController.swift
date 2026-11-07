@@ -225,6 +225,14 @@ final class NoteController: NSObject, NSTextViewDelegate, NoteMouseHandling {
         delegate?.noteDidChange(self)
     }
 
+    /// macOS accepted the scheduled notification for the reminder at `date` (ignored if it changed since).
+    func markReminderScheduled(for date: Date) {
+        guard var r = record.reminder, r.date == date, !r.scheduledWithSystem, !r.fired else { return }
+        r.scheduledWithSystem = true
+        record.reminder = r
+        delegate?.noteDidChange(self)
+    }
+
     func markReminderFired() {
         guard var r = record.reminder else { return }
         r.fired = true

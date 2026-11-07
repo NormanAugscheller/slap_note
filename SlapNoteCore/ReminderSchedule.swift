@@ -43,6 +43,29 @@ public enum ReminderSchedule {
         }.min()
     }
 
+    /// Notification identifier of one reminder instance: the note plus the reminder time. A new time is
+    /// a new instance, so an old delivered notification never hides a new one.
+    public static func notificationIdentifier(noteID: UUID, date: Date) -> String {
+        "\(noteID.uuidString)@\(Int(date.timeIntervalSince1970.rounded(.down)))"
+    }
+
+    /// The note a notification identifier belongs to (also accepts the bare UUID used before).
+    public static func noteID(fromNotificationIdentifier identifier: String) -> UUID? {
+        UUID(uuidString: String(identifier.split(separator: "@", maxSplits: 1).first ?? ""))
+    }
+
+    /// Date components for the system's one-time calendar trigger.
+    public static func triggerComponents(for date: Date, calendar: Calendar = .current) -> DateComponents {
+        calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+    }
+
+    /// Due reminders SlapNote has to announce itself: only those macOS never accepted a scheduled
+    /// notification for. Everything else the system already delivered (or is delivering).
+    public static func needsOwnNotification(_ reminder: ReminderRecord?) -> Bool {
+        guard let r = reminder else { return false }
+        return !r.scheduledWithSystem
+    }
+
     /// English (the UI language) with the user's region and 12/24-hour preference.
     public static var displayLocale: Locale {
         var components = Locale.Components(locale: .current)

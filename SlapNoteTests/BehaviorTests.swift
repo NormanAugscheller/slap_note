@@ -119,6 +119,32 @@ final class ReminderTests: XCTestCase {
     func testDisplayLocaleIsEnglish() {
         XCTAssertEqual(ReminderSchedule.displayLocale.language.languageCode, .english)
     }
+
+    func testOnlyRemindersTheSystemNeverAcceptedNeedOwnNotification() {
+        // Scheduled with macOS, passed while SlapNote was closed, dismissed by the user: not posted again.
+        XCTAssertFalse(ReminderSchedule.needsOwnNotification(ReminderRecord(date: date(2026, 11, 6, 20, 0), scheduledWithSystem: true)))
+        XCTAssertTrue(ReminderSchedule.needsOwnNotification(ReminderRecord(date: date(2026, 11, 6, 20, 0))))
+        XCTAssertFalse(ReminderSchedule.needsOwnNotification(nil))
+    }
+
+    func testScheduledFlagRoundTripsAndDefaultsToFalse() throws {
+        let record = ReminderRecord(date: date(2026, 11, 6, 20, 0), scheduledWithSystem: true)
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        XCTAssertEqual(try decoder.decode(ReminderRecord.self, from: encoder.encode(record)), record)
+        let old = try decoder.decode(ReminderRecord.self, from: Data(#"{"date":"2026-11-06T19:00:00Z"}"#.utf8))
+        XCTAssertFalse(old.scheduledWithSystem)
+    }
+
+    func testNotificationIdentifierIsPerReminderInstance() {
+        let id = UUID()
+        let a = ReminderSchedule.notificationIdentifier(noteID: id, date: date(2026, 11, 6, 20, 0))
+        let b = ReminderSchedule.notificationIdentifier(noteID: id, date: date(2026, 11, 7, 20, 0))
+        XCTAssertNotEqual(a, b)
+        XCTAssertEqual(ReminderSchedule.noteID(fromNotificationIdentifier: a), id)
+        XCTAssertEqual(ReminderSchedule.noteID(fromNotificationIdentifier: id.uuidString), id, "identifiers from before")
+        XCTAssertNil(ReminderSchedule.noteID(fromNotificationIdentifier: "nonsense"))
+    }
 }
 
 final class AgingTests: XCTestCase {

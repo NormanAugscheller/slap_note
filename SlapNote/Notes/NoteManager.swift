@@ -65,6 +65,7 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         reminders.notesProvider = { [weak self] in self?.records ?? [] }
         reminders.onDue = { [weak self] ids in self?.remindersDue(ids) }
         reminders.onNotificationClicked = { [weak self] id in self?.notificationClicked(id) }
+        reminders.onScheduled = { [weak self] id, date in self?.controller(for: id)?.markReminderScheduled(for: date) }
         reminders.start()
         reminders.rearm(notes: records)
         reminders.sync(notes: records)
@@ -479,18 +480,16 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
     // MARK: Reminders
 
     private func remindersDue(_ ids: [UUID]) {
-        var late: [NoteRecord] = []
-        var onTime: [NoteRecord] = []
+        var unannounced: [NoteRecord] = []
         for id in ids {
             guard let c = controller(for: id) else { continue }
-            let wasLate = (c.record.reminder?.date ?? Date()) < Date().addingTimeInterval(-60)
+            // A reminder macOS accepted is delivered by the system, also while SlapNote was closed —
+            // even if the user has dismissed it since. Only the others need a notification from us.
+            if ReminderSchedule.needsOwnNotification(c.record.reminder) { unannounced.append(c.record) }
             c.markReminderFired()
             c.startAttention()
-            if wasLate { late.append(c.record) } else { onTime.append(c.record) }
         }
-        reminders.postMissed(late)
-        // On time the system delivers the scheduled notification itself; post only if it did not.
-        reminders.postMissed(onTime, after: 3)
+        reminders.postMissed(unannounced)
         scheduleSave()
     }
 
