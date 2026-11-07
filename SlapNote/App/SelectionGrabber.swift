@@ -34,6 +34,10 @@ enum SelectionGrabber {
     private static var inProgress = false
 
     /// Starts a grab. Returns false (and never calls `completion`) if one is already running.
+    ///
+    /// The target is the app that is frontmost when the shortcut fires. The Accessibility read runs off
+    /// the main thread (a hanging app cannot freeze SlapNote), and the ⌘C fallback only runs if that app
+    /// is still frontmost afterwards, so a focus change cannot grab — or copy in — another app.
     @discardableResult
     static func grabSelection(completion: @escaping (Result) -> Void) -> Bool {
         guard !inProgress else { return false }
@@ -42,23 +46,46 @@ enum SelectionGrabber {
             inProgress = false
             completion(result)
         }
-        if let text = accessibilitySelectedText() {
-            finish(.text(text))
+        guard let target = NSWorkspace.shared.frontmostApplication else {
+            finish(.failed)
             return true
         }
-        copyFallback(completion: finish)
+        if target.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            // SlapNote itself is in front (for example while editing a note): read its own text view.
+            // Asking our own process through Accessibility would wait on the main thread we block.
+            let textView = NSApp.keyWindow?.firstResponder as? NSTextView
+            let selected = textView.map { tv in (tv.string as NSString).substring(with: tv.selectedRange()) } ?? ""
+            finish(selected.isEmpty ? .nothing : .text(selected))
+            return true
+        }
+        let pid = target.processIdentifier
+        DispatchQueue.global(qos: .userInitiated).async {
+            let text = accessibilitySelectedText(pid: pid)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let text {
+                        finish(.text(text))
+                    } else if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+                        copyFallback(completion: finish)
+                    } else {
+                        finish(.failed)
+                    }
+                }
+            }
+        }
         return true
     }
 
     // MARK: Accessibility
 
-    /// The focused element's selected text, or nil if the app does not provide it (or it is empty, which
-    /// many apps also report when they simply do not support the attribute).
-    private static func accessibilitySelectedText() -> String? {
-        let system = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(system, 0.5)
+    /// The selected text of the focused element of the app `pid`, or nil if the app does not provide it
+    /// (or it is empty, which many apps also report when they simply do not support the attribute).
+    /// Runs on a background queue; each Accessibility message waits at most 0.5 s.
+    nonisolated private static func accessibilitySelectedText(pid: pid_t) -> String? {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
         var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
               let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
         let element = focused as! AXUIElement
         AXUIElementSetMessagingTimeout(element, 0.5)
@@ -77,19 +104,20 @@ enum SelectionGrabber {
 
     private static func copyFallback(completion: @escaping (Result) -> Void) {
         let pasteboard = NSPasteboard.general
-        guard let saved = snapshot(pasteboard) else {
-            // Some contents (for example promised data of an app that quit) cannot be read back.
-            // Copying would destroy them, so do not copy at all.
+        let before = pasteboard.changeCount
+        guard let saved = snapshot(pasteboard), pasteboard.changeCount == before else {
+            // Some contents (for example promised data of an app that quit) cannot be read back, or the
+            // clipboard changed while it was being saved. Copying would destroy them, so do not copy at all.
             NSLog("SlapNote: note from selection skipped, the clipboard could not be saved completely")
             completion(.failed)
             return
         }
-        let before = pasteboard.changeCount
         guard postCopyShortcut() else {
             completion(.failed)
             return
         }
-        let start = Date()
+        // Monotonic clock: a system clock set back cannot stretch the wait.
+        let start = ProcessInfo.processInfo.systemUptime
         poll(pasteboard, before: before, start: start) { outcome in
             switch outcome {
             case .copied:
@@ -101,35 +129,22 @@ enum SelectionGrabber {
             case .unclear:
                 completion(.failed)
             case .timedOut, .waiting:
+                // No copy within the timeout. A copy arriving later cannot be told apart from one the
+                // user makes, so it is left alone rather than possibly wiping the user's own copy.
                 completion(.nothing)
-                undoLateCopy(pasteboard, before: before, saved: saved, until: Date().addingTimeInterval(CopyFallback.lateCopyWindow))
             }
         }
     }
 
-    private static func poll(_ pasteboard: NSPasteboard, before: Int, start: Date, done: @escaping (CopyFallback.Outcome) -> Void) {
+    private static func poll(_ pasteboard: NSPasteboard, before: Int, start: TimeInterval, done: @escaping (CopyFallback.Outcome) -> Void) {
         let outcome = CopyFallback.outcome(before: before, current: pasteboard.changeCount,
-                                           elapsed: Date().timeIntervalSince(start))
+                                           elapsed: ProcessInfo.processInfo.systemUptime - start)
         guard outcome == .waiting else {
             done(outcome)
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
             poll(pasteboard, before: before, start: start, done: done)
-        }
-    }
-
-    /// The target app answered after the timeout: its copy would replace the user's clipboard. If the
-    /// next change is exactly that one copy, put the saved contents back. Any other change ends the watch.
-    private static func undoLateCopy(_ pasteboard: NSPasteboard, before: Int, saved: [SavedItem], until deadline: Date) {
-        let current = pasteboard.changeCount
-        if current == before + 1 {
-            restore(saved, to: pasteboard)
-            return
-        }
-        guard current == before, Date() < deadline else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            undoLateCopy(pasteboard, before: before, saved: saved, until: deadline)
         }
     }
 

@@ -12,13 +12,11 @@ public enum CopyFallback {
         case copied
         /// More than one change: someone else wrote too. Do not read, do not restore.
         case unclear
-        /// No change before the timeout. Nothing to read; keep watching for a late copy.
+        /// No change before the timeout. Nothing to read, nothing to restore.
         case timedOut
     }
 
     public static let timeout: TimeInterval = 1.0
-    /// How long after a timeout a late copy from the target app is still undone.
-    public static let lateCopyWindow: TimeInterval = 2.0
 
     public static func outcome(before: Int, current: Int, elapsed: TimeInterval, timeout: TimeInterval = timeout) -> Outcome {
         switch current - before {
