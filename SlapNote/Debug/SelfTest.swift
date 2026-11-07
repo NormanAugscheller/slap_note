@@ -119,6 +119,23 @@ final class SelfTest {
             if let c = m.placement?.note { m.noteRequestsCancelPlacement(c) }
             self.check(!m.isPlacing && m.notes.count == 1, "Esc discards the hanging note")
         }
+        step("long note", after: 1.0) {
+            m.newNote(text: (1...400).map { "line \($0)" }.joined(separator: "\n"))
+            guard let s = m.placement else { return self.check(false, "long placement note exists") }
+            m.placementDidSlap(s)
+        }
+        step("long note discard", after: 0.5) {
+            guard let c = m.notes.last else { return }
+            m.noteRequestsDiscard(c)
+        }
+        step("long note restore", after: 1.0) {
+            m.restoreLastNote()
+            guard let c = m.notes.last, let screen = c.window.screen else { return self.check(false, "long note restored") }
+            self.check(c.noteFrame.height <= screen.visibleFrame.height - 40 + 0.5 && c.view.scrollView.hasVerticalScroller,
+                       "restored long note fits its display and scrolls inside")
+            self.check(screen.visibleFrame.insetBy(dx: -1, dy: -1).contains(c.noteFrame), "restored long note is fully visible")
+            m.noteRequestsDiscard(c)
+        }
         step("save failure", after: 1.0) {
             let fm = FileManager.default
             let path = m.store.directory.path

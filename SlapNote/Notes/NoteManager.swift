@@ -115,14 +115,22 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
     }
 
     /// Puts a note where its record says (falls back to the main display if its display is missing).
+    /// The target display is found first; height and internal scrolling are computed for its visible
+    /// area, and only then is the note positioned with that size.
     private func place(_ controller: NoteController) {
+        let displays = Self.currentDisplays()
+        guard let target = DisplayResolver.resolve(controller.record.position, noteSize: controller.displayedSize,
+                                                   displays: displays) else { return }
+        if let screen = NSScreen.screens.first(where: { $0.displayUUID == target.displayUUID }) {
+            controller.fit(to: screen)
+        }
         guard let resolved = DisplayResolver.resolve(controller.record.position, noteSize: controller.displayedSize,
-                                                     displays: Self.currentDisplays()) else { return }
+                                                     displays: displays) else { return }
         controller.setNoteCenter(resolved.center)
     }
 
     private func screensChanged() {
-        for c in notes where c.mode == .stuck {
+        for c in notes where c.mode == .stuck || c.mode == .editing {
             place(c)
         }
     }

@@ -83,8 +83,21 @@ final class NoteController: NSObject, NSTextViewDelegate, NoteMouseHandling {
         window.setFrameOrigin(NSPoint(x: (center.x - w / 2).rounded(), y: (center.y - h / 2).rounded()))
     }
 
+    /// The screen the note is laid out for. While a note is being moved to another display this is the
+    /// destination, not the screen the window is still on.
+    private var layoutScreen: NSScreen? { pendingScreen ?? window.screen ?? NSScreen.main }
+    private var pendingScreen: NSScreen?
+
     private var visibleScreenHeight: CGFloat {
-        (window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
+        layoutScreen?.visibleFrame.height ?? 900
+    }
+
+    /// Recomputes the auto-grow height and internal scrolling for `screen` before the note is moved
+    /// there, so a long note never ends up taller than the display it lands on.
+    func fit(to screen: NSScreen) {
+        pendingScreen = screen
+        relayout(anchor: .center)
+        pendingScreen = nil
     }
 
     /// Recomputes the auto-grow height and lays everything out.
@@ -109,7 +122,7 @@ final class NoteController: NSObject, NSTextViewDelegate, NoteMouseHandling {
         case .top:
             origin = NSPoint(x: oldFrame.midX - w / 2, y: oldFrame.maxY + NoteView.margin - h)
         }
-        if mode != .placement, let screen = window.screen ?? NSScreen.main {
+        if mode != .placement, let screen = layoutScreen {
             // Keep a growing stuck note on screen.
             let center = DisplayResolver.clampCenter(CGPoint(x: origin.x + w / 2, y: origin.y + h / 2),
                                                      size: displayedSize, into: screen.visibleFrame)
