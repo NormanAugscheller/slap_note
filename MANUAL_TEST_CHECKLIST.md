@@ -121,6 +121,8 @@ For a clean first launch, quit SlapNote and reset its data first:
 - [ ] E7. Set a reminder, quit and relaunch before it is due. **Expected:** label still there and it fires on time.
 - [ ] E8. Set a reminder 5 minutes ahead, then change the time zone in System Settings › General › Date & Time.
   **Expected:** the label shows the new local time; wiggle and notification still come at the same moment (D46).
+- [ ] E9. Set a reminder 3 minutes ahead, right click the note away, wait until the time has passed, press `⌃⌥Z`.
+  **Expected:** the restored note wiggles and exactly one notification appears (D53).
 
 ## F. Aging (criterion 12)
 
@@ -139,6 +141,10 @@ For a clean first launch, quit SlapNote and reset its data first:
   browser or an Electron app). **Expected:** same result through the ⌘C fallback.
 - [ ] G3. Press `⌃⌥S` with nothing selected. **Expected:** empty hanging note; clipboard unchanged.
 - [ ] G3b. Press `⌃⌥S` twice quickly in such an app. **Expected:** one note; clipboard still has the old content.
+- [ ] G3c. In an app that does not expose its selection (see G2), press `⌃⌥S` and copy something yourself right
+  after. **Expected:** your copy stays on the clipboard when you paste a few seconds later (D54).
+- [ ] G5. Select text in an app, press `⌃⌥S` and immediately switch apps with ⌘Tab. **Expected:** SlapNote never
+  freezes; the note has the text of the first app or SlapNote beeps — never text of the other app (D55).
 - [ ] G4. Rebuild the app (ad-hoc signature changes) and try again. **Expected (known limitation):** permission may need
   to be removed and re-added.
 
@@ -157,6 +163,9 @@ For a clean first launch, quit SlapNote and reset its data first:
 - [ ] H5. Quit, set `"version": 99` in `notes.json`, make the folder read-only, launch. **Expected:** notes appear and
   an alert says changes are not saved; `notes.json` is unchanged after quitting (D43). Restore permissions after.
 
+- [ ] H6. Press `⌃⌥N`, type a few words, and press `⌘Q` while the note still hangs.
+  **Expected:** after relaunch the note is stuck where it hung (D52).
+
 ## I. Displays and Spaces (criterion 15)
 
 - [ ] I1. Slap notes on the external display. Unplug it. **Expected:** those notes move to the built-in display, fully
@@ -164,6 +173,8 @@ For a clean first launch, quit SlapNote and reset its data first:
 - [ ] I2. Quit, unplug the external display, launch, plug it back in. **Expected:** same as I1.
 - [ ] I2b. On a tall external display make a note so long it nearly fills the screen height, then unplug the display.
   **Expected:** on the smaller display the note is fully visible and scrolls inside (D48).
+- [ ] I2c. Make a note so long it nearly fills a tall display, then drag it onto a smaller display. **Expected:**
+  after letting go it fits the smaller display and scrolls inside (D56).
 - [ ] I3. Slap a note on Space 1, switch to Space 2. **Expected:** the note is not visible on Space 2. Back on Space 1 it is.
 - [ ] I4. Relaunch on Space 2. **Expected (known limitation):** all notes appear on Space 2.
 - [ ] I5. Mission Control. **Expected:** notes stay in place like desktop items; they are not ⌘\`-cycled.

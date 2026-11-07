@@ -3,9 +3,9 @@
 Status of every acceptance criterion from SPEC.md §12. "Done" means implemented and verified as far as an
 automated check can go. Evidence types:
 
-- **unit test** — XCTest in `SlapNoteTests/`, run with `xcodebuild -scheme SlapNote test` (88 tests, 0 failures)
+- **unit test** — XCTest in `SlapNoteTests/`, run with `xcodebuild -scheme SlapNote test` (93 tests, 0 failures)
 - **self-test** — the debug-only runtime test in `SlapNote/Debug/SelfTest.swift`, which drives the real note
-  windows (`SlapNote -SlapNoteSelfTest YES -SlapNoteDataDirectory <dir>`; 34 checks, `SELFTEST PASSED`)
+  windows (`SlapNote -SlapNoteSelfTest YES -SlapNoteDataDirectory <dir>`; 38 checks, `SELFTEST PASSED`)
 - **command** — command output recorded during the build session
 - **manual** — needs a human at the Mac (feel, real input devices, Spaces, displays, permissions, login);
   see the referenced section of [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md)
@@ -29,7 +29,7 @@ automated check can go. Evidence types:
 | 15 | Multi-display reassignment works; Space behavior as in §5.6 | Done | unit test: `DisplayTests` (6: relative position, own display, missing display → main inside visible frame, return of display, oversized note, no displays). self-test: "restored long note fits its display and scrolls inside", "restored long note is fully visible". Manual I1–I5, I2b (needs unplugging the monitor and switching Spaces) |
 | 16 | Settings window contains all sections of §8 incl. the complete shortcut list; settings apply instantly | Done | `SettingsView.swift`: Notes (swatches, shape icons, random, preview), Text, Behavior, Shortcuts (Global / Placement / Stuck / Edit, recorders, modifier pickers, Reset to Defaults), About. Instant apply: `AppSettings.didChange` → `NoteManager.settingsChanged`; self-test "always-on-top applies instantly". Manual A5–A10 |
 | 17 | Respects Reduce Motion | Done | Every animation in `NoteAnimator` / `ThrowAnimator` checks `Motion.reduced` and falls back to fades; sway off in `PlacementSession`; live updates via `accessibilityDisplayOptionsDidChangeNotification`. Manual K1–K2 |
-| 18 | All unit tests pass; build has no warnings in project code | Done | command: `xcodebuild -scheme SlapNote test` → `Executed 88 tests, with 0 failures`, `** TEST SUCCEEDED **`, exit 0. `xcodebuild -scheme SlapNote build` → exit 0; `grep warning:` over the log finds no warning in a file under the project (only xcodebuild's own "multiple matching destinations" notice and Apple's appintents metadata note) |
+| 18 | All unit tests pass; build has no warnings in project code | Done | command: `xcodebuild -scheme SlapNote test` → `Executed 93 tests, with 0 failures`, `** TEST SUCCEEDED **`, exit 0. `xcodebuild -scheme SlapNote build` → exit 0; `grep warning:` over the log finds no warning in a file under the project (only xcodebuild's own "multiple matching destinations" notice and Apple's appintents metadata note) |
 | 19 | README.md, DECISIONS.md, PROGRESS.md, MANUAL_TEST_CHECKLIST.md, ASSETS_NEEDED.md exist and are complete | Done | Files in the repository root. The owner later chose to publish under MIT, so `LICENSE` exists too (DECISIONS, Q2) |
 | 20 | REVIEW_PROMPT.md exists: ready-to-paste prompt for Codex (bugs, security: permissions, pasteboard, file writes; macOS API misuse) | Done | `REVIEW_PROMPT.md` |
 
@@ -51,9 +51,25 @@ unit and only build together.
 ## Codex review, round 1
 
 Seven findings on `25157ac`, all confirmed and fixed (DECISIONS D43–D49), one commit each:
-`852c986` newer-version copy verified or writes refused · `fff6438` failed saves visible, quit asks ·
-`442f8e3` no re-posted reminders · `dc6e82f` UTC trigger · `d205a3e` layout for the destination display ·
-`67732fd` selection via Accessibility, guarded ⌘C fallback · `a3b62f9` separate Peek reasons.
+`a083bcb` newer-version copy verified or writes refused · `32cf22f` failed saves visible, quit asks ·
+`c5dcb26` no re-posted reminders · `89e480b` UTC trigger · `5e5288d` layout for the destination display ·
+`bfaea83` selection via Accessibility, guarded ⌘C fallback · `6484e5f` separate Peek reasons.
+(Hashes after the history rewrite that moved the real assets into `e3f2a63`.)
+
+## Codex review, round 2
+
+Nine findings on `a27b579`, all confirmed and fixed (DECISIONS D50–D56):
+`8ffc5a8` both files checked, linked copies rejected (1, 2) · `9595417` hanging note slapped on quit (3) ·
+`3694c89` reminder acceptance per registration, legacy requests removed, whole seconds (4, 5, 8) ·
+`6176074` selection from the frontmost app off the main thread, no late-copy undo (6, 9) ·
+`b563e29` layout after drag or slap (7).
+Evidence: unit tests `testNewerBackupBesideAnOlderMainFileIsPreservedToo`,
+`testNewerBackupBlocksWritesWhenItCannotBeCopied`, `testSymbolicLinkToTheMainFileIsNotAcceptedAsCopy`,
+`testCopyRemovedAfterLoadIsMadeAgainBeforeSaving`, `testFractionalReminderTimeIsNormalizedEverywhere`;
+self-test "quitting while placing slaps the draft and saves it", "the slapped draft is in notes.json",
+"a discarded note no longer counts on its cancelled system notification", "a dragged long note is laid out
+for its display". Findings 5, 6 and 9 have no automated test (system notification center, pasteboard
+timing, Accessibility of another app); manual items E9, G3c, G5, I2c.
 
 ## Not verifiable in this session
 

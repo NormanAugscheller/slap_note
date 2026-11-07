@@ -259,10 +259,8 @@ element never touches the clipboard. Only if an app returns no selected text thi
 empty string), the ⌘C fallback runs, guarded by `CopyFallback`: one grab at a time (a second press is
 ignored); no copy at all if any pasteboard representation cannot be read back (it would be lost); after ⌘C,
 exactly one change-count step is the copy, more steps mean another writer and nothing is read or restored;
-restore only if nobody wrote after the copy; timeout 1 s, and a single late copy within the next 2 s is
-undone. When the clipboard cannot be protected SlapNote beeps and creates no note. The remaining risk: if the
-user copies something themselves in the 2 s after a timed-out grab, that copy is replaced by the earlier
-clipboard — chosen over leaving a late copy that destroys the earlier clipboard for good.
+restore only if nobody wrote after the copy; timeout 1 s. When the clipboard cannot be protected SlapNote
+beeps and creates no note. (The late-copy undo first chosen here was removed in round 2, see D54.)
 
 **D48 · Notes are laid out for their destination display before they move** (finding 6). `place` resolves
 the target display, recomputes auto-grow height and the internal scroller for its visible frame
@@ -271,6 +269,52 @@ changes (stuck and editing notes).
 
 **D49 · Peek has two independent reasons** (finding 7, `PeekState`): the held shortcut and the 3-second
 notification highlight. Peek stays on while either holds; a new notification click restarts the highlight.
+
+## Codex review, round 2 (on `a27b579`)
+
+All nine findings were confirmed against the code and fixed with the owner's approval. Before that, the real
+app icon and paper texture, which had slipped into the first commit of round 1, were split into their own
+commit (history rewritten before the first push).
+
+**D50 · Both notes files are checked for a newer format on every load** (finding 1). `load()` checks
+`notes.json` and `notes.json.bak` independently, whichever one is loaded, because a save replaces both. Each
+newer file gets its own verified copy (`preservedCopyURLs`); if one cannot be made, writes are blocked (D43).
+
+**D51 · A preserved copy must be an independent regular file** (finding 2): not a symbolic link, not a
+directory, exactly one hard link, exactly the loaded bytes. `save()` re-checks every copy right before it
+replaces the files; a missing or changed copy is made again, otherwise the save is refused.
+
+**D52 · Quitting while a note hangs at the cursor slaps it** (finding 3) where it hangs, if it has text or a
+reminder, so it is saved with the others and stays if the quit is cancelled. An empty hanging note is thrown
+away as with Esc. Asking instead was rejected: a modal question about a half-typed note during logout is worse
+than a note the user can throw away in one right click.
+
+**D53 · Acceptance by macOS belongs to one registration** (findings 4, 5, 8).
+- Discarding a note clears `scheduledWithSystem` in the restorable record, because the request is cancelled.
+- When `sync()` replaces a still-pending request after a change, or macOS refuses one, the flag is cleared
+  (`onUnscheduled`) until the new request is accepted. A refused request is dropped from the cache, so the
+  next sync tries again.
+- Answers of older registrations are ignored (registration counter per note).
+- Due, fired or removed reminders keep their flag: a due one was already delivered by the system.
+- At start, pending requests under a bare note UUID (identifier format of development builds before D45) are
+  removed. No released version used it.
+- `ReminderRecord.date` is always a whole second (init, decoding and setter), so stored time, identifier,
+  timer and system trigger are the same instant. The picker only produces whole minutes anyway.
+
+**D54 · The ⌘C fallback never touches the clipboard after its timeout** (finding 6). The late-copy undo of
+D47 is removed: a later change cannot be told apart from a copy by the user, and the watcher outlived the
+one-grab lock. A target app answering after 1 s therefore leaves its copy on the clipboard (rare, and visible
+as an empty note). The change count is compared before and after the snapshot; the timeout uses the
+monotonic uptime. Remaining limit: a copy by the user within the 1 s window still counts as the target app's
+copy; there is no public API to tell who wrote to the pasteboard.
+
+**D55 · The selection is read from the app that was in front, off the main thread** (finding 9). The
+frontmost app is captured when the shortcut fires; Accessibility asks that app (not the system-wide focused
+element) on a background queue, at most 0.5 s per message. The ⌘C fallback only runs if that app is still in
+front. If SlapNote itself is in front, the selection of its own text view is used directly.
+
+**D56 · A drag or slap ends with a layout for the display under the note's center** (finding 7):
+`fit(to:)`, then the final position is recorded.
 
 ## Open questions for the owner
 
