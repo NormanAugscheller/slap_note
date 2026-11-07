@@ -54,9 +54,13 @@ public enum ReminderSchedule {
         UUID(uuidString: String(identifier.split(separator: "@", maxSplits: 1).first ?? ""))
     }
 
-    /// Date components for the system's one-time calendar trigger.
-    public static func triggerComponents(for date: Date, calendar: Calendar = .current) -> DateComponents {
-        calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+    /// Date components for the system's one-time calendar trigger. They describe the stored absolute
+    /// time in UTC, with calendar and time zone set, so a time zone change or the repeated hour when
+    /// daylight saving time ends cannot move the notification away from the note's own due time.
+    public static func triggerComponents(for date: Date) -> DateComponents {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        return utc.dateComponents([.calendar, .timeZone, .year, .month, .day, .hour, .minute, .second], from: date)
     }
 
     /// Due reminders SlapNote has to announce itself: only those macOS never accepted a scheduled

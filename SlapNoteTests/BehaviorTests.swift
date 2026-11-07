@@ -1,5 +1,6 @@
 import CoreGraphics
 import XCTest
+import UserNotifications
 @testable import SlapNoteCore
 
 final class DisplayTests: XCTestCase {
@@ -134,6 +135,31 @@ final class ReminderTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(ReminderRecord.self, from: encoder.encode(record)), record)
         let old = try decoder.decode(ReminderRecord.self, from: Data(#"{"date":"2026-11-06T19:00:00Z"}"#.utf8))
         XCTAssertFalse(old.scheduledWithSystem)
+    }
+
+    func testTriggerComponentsPinTheAbsoluteTime() throws {
+        // 2026-10-25 02:30 happens twice in Vienna; take the second one (after the clocks went back).
+        let firstPass = date(2026, 10, 25, 2, 30)
+        let secondPass = firstPass.addingTimeInterval(3600)
+        for reminder in [firstPass, secondPass, date(2026, 11, 20, 9, 5)] {
+            let comps = ReminderSchedule.triggerComponents(for: reminder)
+            XCTAssertEqual(comps.timeZone?.secondsFromGMT(for: reminder), 0)
+            // Read with any other calendar the components still name the same instant.
+            var tokyo = Calendar(identifier: .gregorian)
+            tokyo.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+            XCTAssertEqual(tokyo.date(from: comps), reminder)
+        }
+    }
+
+    func testSystemTriggerFiresAtTheStoredTime() throws {
+        let reminder = Date().addingTimeInterval(3 * 24 * 3600).rounded(toSeconds: 1)
+        let comps = ReminderSchedule.triggerComponents(for: reminder)
+        XCTAssertEqual(UNCalendarNotificationTrigger(dateMatching: comps, repeats: false).nextTriggerDate(), reminder)
+        // The Mac moves to another time zone after the reminder was scheduled.
+        let original = NSTimeZone.default
+        defer { NSTimeZone.default = original }
+        NSTimeZone.default = TimeZone(identifier: "America/Los_Angeles")!
+        XCTAssertEqual(UNCalendarNotificationTrigger(dateMatching: comps, repeats: false).nextTriggerDate(), reminder)
     }
 
     func testNotificationIdentifierIsPerReminderInstance() {
@@ -296,5 +322,11 @@ final class CrumpleTests: XCTestCase {
         let pts = PathSampler.points(of: CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 100), transform: nil), count: 40)
         XCTAssertEqual(pts.count, 40)
         XCTAssertEqual(abs(PathSampler.signedArea(pts)), 10_000, accuracy: 1)
+    }
+}
+
+private extension Date {
+    func rounded(toSeconds step: TimeInterval) -> Date {
+        Date(timeIntervalSince1970: (timeIntervalSince1970 / step).rounded(.down) * step)
     }
 }
