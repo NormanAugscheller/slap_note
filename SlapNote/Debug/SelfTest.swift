@@ -160,6 +160,10 @@ final class SelfTest {
             self.check(c.noteFrame.height <= screen.visibleFrame.height - 40 + 0.5 && c.view.scrollView.hasVerticalScroller,
                        "restored long note fits its display and scrolls inside")
             self.check(screen.visibleFrame.insetBy(dx: -1, dy: -1).contains(c.noteFrame), "restored long note is fully visible")
+            // A drag that leaves the note hanging over the edge of its display ends with a new layout there.
+            c.window.setFrameOrigin(NSPoint(x: c.window.frame.minX, y: screen.visibleFrame.minY - c.noteFrame.height / 2))
+            m.noteDidMove(c)
+            self.check(screen.visibleFrame.insetBy(dx: -1, dy: -1).contains(c.noteFrame), "a dragged long note is laid out for its display")
             m.noteRequestsDiscard(c)
         }
         step("save failure", after: 1.0) {

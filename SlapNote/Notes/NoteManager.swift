@@ -139,6 +139,16 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         }
     }
 
+    /// After a drag or slap: the display under the note's center may be smaller than the one it grew on.
+    /// Lays the note out for that display (height cap, internal scrolling, kept on screen), then records
+    /// the final position.
+    private func settleOnItsDisplay(_ controller: NoteController) {
+        recordPosition(of: controller)
+        guard let screen = NSScreen.screens.first(where: { $0.displayUUID == controller.record.position.displayUUID }) else { return }
+        controller.fit(to: screen)
+        recordPosition(of: controller)
+    }
+
     /// Records the display + relative position of the note's current center.
     private func recordPosition(of controller: NoteController) {
         if let pos = DisplayResolver.position(forCenter: controller.noteCenter, displays: Self.currentDisplays()) {
@@ -206,8 +216,8 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
 
         let rotation = Double.random(in: -2...2)
         c.setRotation(rotation)
-        recordPosition(of: c)
         c.setMode(.stuck)
+        settleOnItsDisplay(c)
         c.window.makeFirstResponder(nil)
         c.window.resignKey()
         c.touch()
@@ -473,7 +483,7 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
     }
 
     func noteDidMove(_ note: NoteController) {
-        recordPosition(of: note)
+        settleOnItsDisplay(note)
         scheduleSave()
     }
 
