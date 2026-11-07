@@ -476,15 +476,18 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
     // MARK: Reminders
 
     private func remindersDue(_ ids: [UUID]) {
-        var missed: [NoteRecord] = []
+        var late: [NoteRecord] = []
+        var onTime: [NoteRecord] = []
         for id in ids {
             guard let c = controller(for: id) else { continue }
             let wasLate = (c.record.reminder?.date ?? Date()) < Date().addingTimeInterval(-60)
             c.markReminderFired()
             c.startAttention()
-            if wasLate { missed.append(c.record) }
+            if wasLate { late.append(c.record) } else { onTime.append(c.record) }
         }
-        reminders.postMissed(missed)
+        reminders.postMissed(late)
+        // On time the system delivers the scheduled notification itself; post only if it did not.
+        reminders.postMissed(onTime, after: 3)
         scheduleSave()
     }
 

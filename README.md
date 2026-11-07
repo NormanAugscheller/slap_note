@@ -123,6 +123,9 @@ Global shortcuts need no permission.
   again.
 - **⌘Z** restores a note only while SlapNote is the active app (settings window open, a note hanging or being
   edited). Clicking a stuck note intentionally does not take focus from your current app. ⌃⌥Z always works.
+- **⌃⌥Space (Peek) can collide with macOS input sources.** If you use more than one keyboard layout, macOS may
+  use ⌃⌥Space for "Select next source in Input menu" (System Settings › Keyboard › Keyboard Shortcuts › Input
+  Sources). Then Peek does not fire; pick another Peek shortcut in SlapNote's settings or turn off the system one.
 - Notes are hidden in full-screen apps (they live in their own Space).
 - Plain text only.
 

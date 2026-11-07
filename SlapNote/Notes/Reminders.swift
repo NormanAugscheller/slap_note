@@ -26,25 +26,41 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    /// Replaces the scheduled notifications with the pending reminders of `notes`.
+    /// What is currently scheduled with the system, so unchanged reminders are left alone.
+    private var scheduled: [String: (date: Date, title: String)] = [:]
+
+    /// Brings the scheduled notifications in line with the pending reminders of `notes`. Only changed
+    /// reminders are removed and re-added, so a save right before a reminder is due cannot drop it.
     func sync(notes: [NoteRecord]) {
-        let pending = notes.filter { $0.reminder.map { !$0.fired && $0.date > Date() } ?? false }
-        let allIDs = notes.map { $0.id.uuidString }
-        center.removePendingNotificationRequests(withIdentifiers: allIDs)
-        for note in pending {
-            guard let reminder = note.reminder else { continue }
-            let content = UNMutableNotificationContent()
-            content.title = Self.title(for: note)
-            content.sound = .default
-            content.userInfo = ["noteID": note.id.uuidString]
-            let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: reminder.date)
-            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
-            center.add(UNNotificationRequest(identifier: note.id.uuidString, content: content, trigger: trigger))
+        let now = Date()
+        var wanted: [String: (date: Date, title: String)] = [:]
+        for note in notes {
+            guard let r = note.reminder, !r.fired, r.date > now else { continue }
+            wanted[note.id.uuidString] = (r.date, Self.title(for: note))
         }
+        let stale = scheduled.keys.filter { id in
+            guard let w = wanted[id], let s = scheduled[id] else { return true }
+            return w.date != s.date || w.title != s.title
+        }
+        if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: Array(stale)) }
+        for id in stale { scheduled[id] = nil }
+        for (id, item) in wanted where scheduled[id] == nil {
+            let content = UNMutableNotificationContent()
+            content.title = item.title
+            content.sound = .default
+            content.userInfo = ["noteID": id]
+            let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: item.date)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+            center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+            scheduled[id] = item
+        }
+        // Reminders that fired or were removed are no longer pending with the system.
+        for id in scheduled.keys where wanted[id] == nil { scheduled[id] = nil }
     }
 
     func cancel(noteID: UUID) {
         center.removePendingNotificationRequests(withIdentifiers: [noteID.uuidString])
+        scheduled[noteID.uuidString] = nil
     }
 
     static func title(for note: NoteRecord) -> String {
@@ -78,10 +94,17 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
         rearm(notes: notesProvider?() ?? [])
     }
 
-    /// Posts the notification now for a reminder that passed while SlapNote was not running, unless
-    /// the system already delivered it.
-    func postMissed(_ notes: [NoteRecord]) {
+    /// Posts the notification for reminders the system did not deliver itself (passed while SlapNote
+    /// was not running, or the scheduled request went missing). Checks the delivered list first so the
+    /// user never gets the same reminder twice.
+    func postMissed(_ notes: [NoteRecord], after delay: TimeInterval = 0) {
         guard !notes.isEmpty else { return }
+        if delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.postMissed(notes)
+            }
+            return
+        }
         let items = notes.map { (id: $0.id.uuidString, title: Self.title(for: $0)) }
         center.getDeliveredNotifications { delivered in
             let deliveredIDs = Set(delivered.map(\.request.identifier))

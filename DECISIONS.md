@@ -186,6 +186,14 @@ with `-SlapNoteSelfTest YES -SlapNoteDataDirectory <dir>`, it drives real window
 resize, slap, the 1.2 s sink, auto-grow, Peek, always-on-top, hide/show, a due reminder, discard, restore,
 Esc in placement and persistence, and exits 0/1. Delete the file to remove it.
 
+**D41 · Reminder scheduling is incremental.** `ReminderCoordinator.sync` remembers what it scheduled and
+only removes/re-adds reminders whose date or title changed. Re-scheduling everything on every save could drop a
+notification when a save landed in the second before it was due. As a second safety net, a reminder that fires
+on time in the app is posted by SlapNote itself after 3 s if the system has not delivered it by then.
+
+**D42 · The default Peek shortcut ⌃⌥Space is kept as specified**, although macOS can assign it to "Select next
+source in Input menu" when several input sources are enabled. Documented in the README; see Q9.
+
 ## Open questions for the owner
 
 - **Q1 · Spaces after relaunch.** Public APIs cannot put a window on a specific Space, so all notes come back
@@ -203,3 +211,5 @@ Esc in placement and persistence, and exits 0/1. Delete the file to remove it.
   there, or is the macOS default acceptable?
 - **Q8 · Login-item heuristic window** (90 s). Shorter is safer against misclassifying manual launches, longer
   is safer on slow logins.
+- **Q9 · Peek default.** ⌃⌥Space collides with the macOS input-source shortcut for users with several keyboard
+  layouts. Keep it (spec) or choose another default?
