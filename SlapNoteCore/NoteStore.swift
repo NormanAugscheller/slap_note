@@ -106,11 +106,9 @@ public final class NoteStore {
 
     public func load() -> NoteLoadResult {
         writeBlock = nil
-        preservedCopies = []
+        protectedFiles = []
         // Both files are checked, whichever of them is loaded: a save replaces both.
-        for url in [fileURL, backupURL] {
-            if let data = try? Data(contentsOf: url) { preserveIfNewer(data) }
-        }
+        protectWriteTargets()
         if fileManager.fileExists(atPath: fileURL.path) {
             if let data = try? Data(contentsOf: fileURL), let file = try? NotesMigrator.decode(data) {
                 return NoteLoadResult(notes: file.notes, source: .main, recoveredFromCorruption: false)
@@ -118,13 +116,13 @@ public final class NoteStore {
             // Corrupt main file: keep it for inspection, never overwrite the backup with it.
             moveCorruptFileAside()
             if let notes = loadBackup() {
-                if writeBlock == nil { try? save(notes) }
+                try? save(notes)
                 return NoteLoadResult(notes: notes, source: .backup, recoveredFromCorruption: true)
             }
             return NoteLoadResult(notes: [], source: .empty, recoveredFromCorruption: true)
         }
         if let notes = loadBackup() {
-            if writeBlock == nil { try? save(notes) }
+            try? save(notes)
             return NoteLoadResult(notes: notes, source: .backup, recoveredFromCorruption: false)
         }
         return NoteLoadResult(notes: [], source: .empty, recoveredFromCorruption: false)
@@ -133,47 +131,81 @@ public final class NoteStore {
     public enum WriteBlock: Equatable, Sendable {
         /// A file was written with this newer format version and no verified copy of it exists.
         case newerVersionNotPreserved(version: Int)
+        /// A notes file exists but cannot be read, so it cannot be checked or copied before it is replaced.
+        case unreadableFile(name: String)
     }
 
     public enum StoreError: Error, Equatable {
         case writesBlocked(WriteBlock)
     }
 
-    /// Why saving is refused, if it is. Set by `load()` (or re-checked by `save`) when a file from a newer
-    /// SlapNote version could not be preserved: saving would destroy fields this version cannot represent.
+    /// Why saving is refused right now, if it is. Checked again before every save, so the block lifts as
+    /// soon as its cause is gone (a copy can be made, the file can be read).
     public private(set) var writeBlock: WriteBlock?
 
-    /// Verified untouched copies of newer-version files found by the last `load()`, with their bytes.
-    private var preservedCopies: [(url: URL, data: Data, version: Int)] = []
+    /// Bytes of every newer-version file seen since the last `load()`, kept even while no copy exists,
+    /// with the verified copy if there is one.
+    private var protectedFiles: [(data: Data, version: Int, copy: URL?)] = []
 
-    /// The copy of the main file (or, if only the backup was newer, of the backup).
-    public var preservedCopyURL: URL? { preservedCopies.first?.url }
-    public var preservedCopyURLs: [URL] { preservedCopies.map(\.url) }
+    /// The copy of the first newer file found (the main file if it was newer, otherwise the backup).
+    public var preservedCopyURL: URL? { protectedFiles.first?.copy }
+    public var preservedCopyURLs: [URL] { protectedFiles.compactMap(\.copy) }
 
     /// Preferred name of the untouched copy kept when a file written by a newer SlapNote version is opened.
     public func newerVersionCopyURL(version: Int) -> URL {
         directory.appendingPathComponent("notes.v\(version).json")
     }
 
-    /// A file from a newer app version may hold fields this version does not know; saving would drop
-    /// them. Before anything is written, keep a copy of exactly those bytes and read it back.
-    /// If that fails, every write is refused until the next `load()`.
-    private func preserveIfNewer(_ data: Data) {
-        guard let version = NotesMigrator.storedVersion(of: data), version > NotesFile.currentVersion else { return }
-        if preservedCopies.contains(where: { $0.data == data }) { return }
-        if let url = writeVerifiedCopy(data, version: version) {
-            preservedCopies.append((url, data, version))
-        } else {
-            writeBlock = .newerVersionNotPreserved(version: version)
+    /// Runs before anything is written (in `load()` and in every `save`). A save replaces both files, so
+    /// whatever they hold *now* is checked, not only what was loaded: another app or a restore may have
+    /// replaced them since.
+    /// - A file that exists but cannot be read blocks the save: it could be a newer one.
+    /// - A file from a newer app version may hold fields this version does not know. Its exact bytes are
+    ///   copied to a separate file and read back. Every copy is re-verified and made again if it was
+    ///   removed or changed. If that fails, the save is refused; the bytes stay remembered, so a later
+    ///   attempt can still make the copy.
+    private func protectWriteTargets() {
+        var block: WriteBlock?
+        for url in [fileURL, backupURL] {
+            switch readTarget(url) {
+            case .missing:
+                break
+            case .unreadable:
+                block = block ?? .unreadableFile(name: url.lastPathComponent)
+            case .data(let data):
+                guard let version = NotesMigrator.storedVersion(of: data), version > NotesFile.currentVersion,
+                      !protectedFiles.contains(where: { $0.data == data }) else { continue }
+                protectedFiles.append((data, version, nil))
+            }
+        }
+        for (index, file) in protectedFiles.enumerated() {
+            if let copy = file.copy, isIntactCopy(copy, of: file.data) { continue }
+            protectedFiles[index].copy = writeVerifiedCopy(file.data, version: file.version)
+            if protectedFiles[index].copy == nil {
+                block = block ?? .newerVersionNotPreserved(version: file.version)
+            }
+        }
+        writeBlock = block
+    }
+
+    private enum TargetContents { case missing, unreadable, data(Data) }
+
+    /// Tells "there is no file" apart from "there is a file SlapNote cannot read".
+    private func readTarget(_ url: URL) -> TargetContents {
+        do {
+            return .data(try Data(contentsOf: url))
+        } catch {
+            // attributesOfItem does not follow symbolic links: a dangling link is replaced, not followed.
+            return (try? fileManager.attributesOfItem(atPath: url.path)) == nil ? .missing : .unreadable
         }
     }
 
-    /// A copy only counts if it is an independent regular file with exactly the expected bytes:
-    /// a symbolic or hard link to the notes file would change with the next save.
+    /// A copy only counts if it is a regular file with exactly the expected bytes. A symbolic link to the
+    /// notes file would follow the next save. A hard link is fine: saving replaces the notes file with a
+    /// new file, so the copy keeps the old one.
     private func isIntactCopy(_ url: URL, of data: Data) -> Bool {
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
-              attributes[.type] as? FileAttributeType == .typeRegular,
-              (attributes[.referenceCount] as? Int ?? 1) == 1 else { return false }
+              attributes[.type] as? FileAttributeType == .typeRegular else { return false }
         return (try? Data(contentsOf: url)) == data
     }
 
@@ -200,19 +232,6 @@ public final class NoteStore {
         return nil
     }
 
-    /// Right before a save replaces the files: every preserved copy must still be intact. A copy that was
-    /// removed or replaced in the meantime is made again; if that fails, the save is refused.
-    private func recheckPreservedCopies() {
-        for (index, copy) in preservedCopies.enumerated() where !isIntactCopy(copy.url, of: copy.data) {
-            if let url = writeVerifiedCopy(copy.data, version: copy.version) {
-                preservedCopies[index].url = url
-            } else {
-                writeBlock = .newerVersionNotPreserved(version: copy.version)
-                return
-            }
-        }
-    }
-
     private func loadBackup() -> [NoteRecord]? {
         guard let data = try? Data(contentsOf: backupURL), let file = try? NotesMigrator.decode(data) else {
             return nil
@@ -229,9 +248,9 @@ public final class NoteStore {
 
     /// Atomic write (temporary file + rename) of the main file, then of the backup.
     /// The data is encoded once and verified to decode before anything is replaced.
-    /// Throws `StoreError.writesBlocked` while `writeBlock` is set.
+    /// Throws `StoreError.writesBlocked` if the files to be replaced cannot be protected first.
     public func save(_ notes: [NoteRecord]) throws {
-        if writeBlock == nil { recheckPreservedCopies() }
+        protectWriteTargets()
         if let writeBlock { throw StoreError.writesBlocked(writeBlock) }
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try Self.makeEncoder().encode(NotesFile(notes: notes))

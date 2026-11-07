@@ -257,6 +257,64 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.preservedCopyURL)), original)
     }
 
+    func testUnreadableBackupBlocksWritesUntilItCanBeRead() throws {
+        let store = NoteStore(directory: directory)
+        try store.save([sampleNote(text: "current main")])
+        let backup = Data(futureJSON("unreadable backup").utf8)
+        try backup.write(to: store.backupURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: store.backupURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: store.backupURL.path) }
+        let loaded = store.load()
+        XCTAssertEqual(loaded.source, .main)
+        XCTAssertEqual(store.writeBlock, .unreadableFile(name: "notes.json.bak"))
+        XCTAssertThrowsError(try store.save(loaded.notes)) { error in
+            XCTAssertEqual(error as? NoteStore.StoreError, .writesBlocked(.unreadableFile(name: "notes.json.bak")))
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: store.backupURL.path)
+        XCTAssertEqual(try Data(contentsOf: store.backupURL), backup, "the unreadable file was not replaced")
+        try store.save(loaded.notes)
+        XCTAssertNil(store.writeBlock, "the block lifts once the file can be read")
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.preservedCopyURL)), backup)
+    }
+
+    func testNewerFileWrittenAfterLoadIsPreservedBeforeSaving() throws {
+        let store = NoteStore(directory: directory)
+        try store.save([sampleNote(text: "current")])
+        let loaded = store.load()
+        let newer = Data(futureJSON("written by a newer version meanwhile").utf8)
+        try newer.write(to: store.fileURL)
+        try store.save(loaded.notes)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.preservedCopyURL)), newer)
+        XCTAssertEqual(NotesMigrator.storedVersion(of: try Data(contentsOf: store.fileURL)), NotesFile.currentVersion)
+    }
+
+    func testBlockLiftsOnceTheCopyCanBeMade() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let original = Data(futureJSON("blocked for a while").utf8)
+        try original.write(to: store.fileURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        let loaded = store.load()
+        XCTAssertEqual(store.writeBlock, .newerVersionNotPreserved(version: 7))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+        try store.save(loaded.notes)
+        XCTAssertNil(store.writeBlock)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.preservedCopyURL)), original)
+    }
+
+    func testHardLinkToTheMainFileIsAKeptCopy() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let original = Data(futureJSON("hard linked").utf8)
+        try original.write(to: store.fileURL)
+        try FileManager.default.linkItem(at: store.fileURL, to: store.newerVersionCopyURL(version: 7))
+        let loaded = store.load()
+        XCTAssertEqual(store.preservedCopyURL, store.newerVersionCopyURL(version: 7))
+        try store.save(loaded.notes)
+        XCTAssertEqual(try Data(contentsOf: store.newerVersionCopyURL(version: 7)), original,
+                       "saving replaces the notes file, the linked copy keeps the old bytes")
+    }
+
     func testCurrentVersionFileMakesNoExtraCopy() throws {
         let store = NoteStore(directory: directory)
         try store.save([sampleNote()])

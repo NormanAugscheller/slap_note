@@ -94,6 +94,7 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         })
         if let block = store.writeBlock {
             saveProblem = .blocked(block)
+            scheduleRetry()
         } else if result.recoveredFromCorruption || result.source == .backup {
             saveNow()
         }
@@ -602,7 +603,7 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
     enum SaveProblem: Equatable {
         /// Writing failed (disk full, folder not writable, …). Retried automatically.
         case failed(message: String)
-        /// The store refuses writes to protect a file from a newer SlapNote version.
+        /// The store refuses writes to protect a file it cannot copy or read. Retried automatically.
         case blocked(NoteStore.WriteBlock)
     }
 
@@ -647,6 +648,8 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         } catch NoteStore.StoreError.writesBlocked(let block) {
             saved = false
             saveProblem = .blocked(block)
+            // The store checks again on every attempt; the block lifts once its cause is gone.
+            scheduleRetry()
         } catch {
             saved = false
             NSLog("SlapNote: saving notes failed: %@", error.localizedDescription)
