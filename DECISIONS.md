@@ -28,8 +28,10 @@ is set, but Xcode omits `-o runtime` for Debug builds (debug dylib / previews). 
 **D5 · Work happens on branch `feature/v1`.** The owner's project rules forbid working directly on the
 default branch. `main` holds only the specification commit. Merge `feature/v1` into `main` before publishing.
 
-**D6 · Bundle identifier `com.normanaugscheller.SlapNote`.** Settings live in that `UserDefaults` domain.
-See open question Q3.
+**D6 · Bundle identifier `io.github.normanaugscheller.SlapNote`.** Reverse-DNS IDs should belong to a domain
+the author controls; for a project without its own domain the GitHub Pages domain is the free, conventional
+choice. Settings live in that `UserDefaults` domain. Changing it later would reset settings and the
+Accessibility grant, so it was fixed before the first release (Q3).
 
 ## Windows, layers and focus
 
@@ -114,8 +116,10 @@ so an accidental ⌃⌥N + Esc does not destroy the undo of a real note.
 **D25 · Hovering does not acknowledge a due reminder.** Click, drag, double click or discard do. A pointer
 passing over the note by accident should not silence it.
 
-**D26 · Reminder times are shown in 24-hour format** (`14:30`, `Fri 14:30`, `20 Nov 14:30` for dates more
-than six days away), matching the spec examples. See Q4.
+**D26 · Reminder times follow the user's 12/24-hour preference** (`14:30` or `2:30 PM`; `Fri 14:30` within
+six days; `20 Nov 14:30` beyond). Weekday and month names stay English like the rest of the UI
+(`ReminderSchedule.displayLocale` = English + the user's region settings). Date and time are formatted
+separately so locales cannot insert words such as "at" (Q4).
 
 **D27 · Placement-mode scroll modifiers are configurable per action**; choosing a combination that is in use
 swaps the two actions so no action becomes unreachable. Control is never offered (accessibility zoom).
@@ -194,22 +198,30 @@ on time in the app is posted by SlapNote itself after 3 s if the system has not 
 **D42 · The default Peek shortcut ⌃⌥Space is kept as specified**, although macOS can assign it to "Select next
 source in Input menu" when several input sources are enabled. Documented in the README; see Q9.
 
+## Former open questions — decided
+
+The owner delegated these decisions ("choose the most sensible free option"; the repository is public).
+
+- **Q1 · Spaces after relaunch → no private APIs.** Private CGS calls can break with any macOS update, would make
+  the app unfit for notarized distribution and contradict the "no private APIs" rule of a public project. The
+  limitation stays documented in the README.
+- **Q2 · License → MIT** (`LICENSE`). A public repository without a license is legally "all rights reserved",
+  so nobody could use or contribute. MIT is the simplest permissive license and matches the only dependency
+  (KeyboardShortcuts, MIT).
+- **Q3 · Bundle identifier → `io.github.normanaugscheller.SlapNote`** (D6).
+- **Q4 · Time format → follow the system's 12/24-hour setting** (D26).
+- **Q5 · Files from a newer version → keep an untouched copy.** When `notes.json` was written by a newer format
+  version, SlapNote writes `notes.v<version>.json` once before it ever overwrites the file, then works normally.
+  Going back to the newer app loses nothing; refusing to save would have been worse (every edit lost).
+  Tested in `PersistenceTests.testNewerVersionFileIsPreservedBeforeOverwrite`.
+- **Q6 · ⌘Z reach → unchanged.** Not stealing focus when the user clicks a note matters more than ⌘Z; ⌃⌥Z works
+  everywhere.
+- **Q7 · Full-screen Spaces → macOS default.** Blocking placement there would be surprising; the case is rare.
+- **Q8 · Login-item window → 90 s, unchanged.** Covers slow logins with many login items; the only cost is that a
+  manual launch in the first 90 s after login does not open the settings (opening the app again does).
+- **Q9 · Peek default → ⌃⌥Space as specified**, documented in the README with how to change it. Most users have
+  a single input source, where there is no conflict.
+
 ## Open questions for the owner
 
-- **Q1 · Spaces after relaunch.** Public APIs cannot put a window on a specific Space, so all notes come back
-  on the Space that is active at launch. Private CGS APIs could fix this. Not used — approve or keep as is?
-- **Q2 · License.** No LICENSE file yet, as requested.
-- **Q3 · Bundle identifier.** `com.normanaugscheller.SlapNote` — change before the first public release if you
-  prefer another prefix (changing it later resets settings and the Accessibility grant).
-- **Q4 · 24-hour time** on notes and in the picker label regardless of the system's 12/24-hour setting. Follow the
-  system setting instead?
-- **Q5 · Files from a newer SlapNote version** are read best-effort; saving rewrites them in the current format,
-  dropping fields this version does not know. Acceptable, or should an older version refuse to write?
-- **Q6 · ⌘Z reach.** Should clicking a stuck note activate SlapNote (stealing focus) so that ⌘Z right after a
-  right-click discard works? Currently: no; use ⌃⌥Z.
-- **Q7 · Full-screen Spaces.** A note slapped while a full-screen app is in front: should placement be blocked
-  there, or is the macOS default acceptable?
-- **Q8 · Login-item heuristic window** (90 s). Shorter is safer against misclassifying manual launches, longer
-  is safer on slow logins.
-- **Q9 · Peek default.** ⌃⌥Space collides with the macOS input-source shortcut for users with several keyboard
-  layouts. Keep it (spec) or choose another default?
+None at the moment.

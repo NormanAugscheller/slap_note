@@ -100,11 +100,24 @@ final class ReminderTests: XCTestCase {
         XCTAssertEqual(ReminderSchedule.attentionNoteIDs(in: [a, b]), [a.id])
     }
 
-    func testLabels() {
+    func testLabelsIn24HourLocale() {
         let now = date(2026, 11, 6, 10, 0) // Friday
-        XCTAssertEqual(ReminderSchedule.label(for: date(2026, 11, 6, 14, 30), now: now, calendar: calendar), "14:30")
-        XCTAssertEqual(ReminderSchedule.label(for: date(2026, 11, 7, 9, 5), now: now, calendar: calendar), "Sat 09:05")
-        XCTAssertEqual(ReminderSchedule.label(for: date(2026, 11, 20, 9, 5), now: now, calendar: calendar), "20 Nov 09:05")
+        let gb = Locale(identifier: "en_GB")
+        XCTAssertEqual(ReminderSchedule.label(for: date(2026, 11, 6, 14, 30), now: now, calendar: calendar, locale: gb), "14:30")
+        XCTAssertEqual(ReminderSchedule.label(for: date(2026, 11, 7, 9, 5), now: now, calendar: calendar, locale: gb), "Sat 09:05")
+        XCTAssertEqual(ReminderSchedule.label(for: date(2026, 11, 20, 9, 5), now: now, calendar: calendar, locale: gb), "20 Nov 09:05")
+    }
+
+    func testLabelsFollow12HourLocale() {
+        let now = date(2026, 11, 6, 10, 0)
+        let us = Locale(identifier: "en_US")
+        let label = ReminderSchedule.label(for: date(2026, 11, 6, 14, 30), now: now, calendar: calendar, locale: us)
+        XCTAssertTrue(label.hasPrefix("2:30") && label.hasSuffix("PM"), label)
+        XCTAssertFalse(ReminderSchedule.label(for: date(2026, 11, 7, 9, 5), now: now, calendar: calendar, locale: us).contains(","))
+    }
+
+    func testDisplayLocaleIsEnglish() {
+        XCTAssertEqual(ReminderSchedule.displayLocale.language.languageCode, .english)
     }
 }
 

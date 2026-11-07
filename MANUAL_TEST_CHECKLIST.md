@@ -17,7 +17,7 @@ cp -R build/Build/Products/Release/SlapNote.app /Applications/
 ```
 
 For a clean first launch, quit SlapNote and reset its data first:
-`rm -rf ~/Library/Application\ Support/SlapNote` and `defaults delete com.normanaugscheller.SlapNote`.
+`rm -rf ~/Library/Application\ Support/SlapNote` and `defaults delete io.github.normanaugscheller.SlapNote`.
 
 ## A. Launch and settings window (criteria 1, 2, 16)
 
@@ -106,7 +106,7 @@ For a clean first launch, quit SlapNote and reset its data first:
 
 - [ ] E1. Summon a note, type "Call Anna", press `⌘T`. **Expected:** picker attached to the note; the note stops following
   the cursor while it is open. Set a time 2 minutes ahead. **Expected:** first time only: macOS asks for notification
-  permission. Time appears at the top right, e.g. `14:30`.
+  permission. Time appears at the top right, e.g. `14:30` (or `2:30 PM` with the 12-hour setting in System Settings › General › Date & Time).
 - [ ] E2. Set a reminder for tomorrow with the day option. **Expected:** label like `Sat 09:00`.
 - [ ] E3. Wait until due. **Expected:** note wiggles (±4°, 3 cycles) and glows, repeating about every 8 s; notification
   "SlapNote: Call Anna" appears. Clicking the note stops the wiggle.

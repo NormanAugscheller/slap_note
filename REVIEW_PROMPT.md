@@ -6,7 +6,7 @@ Copy everything inside the box into Codex (or use `/review` with these instructi
 Code review only — report findings, do not change any files.
 
 Project: SlapNote, a native macOS 14+ background agent app (Swift + AppKit, SwiftUI only for the settings
-window) at ~/Docs/Programmieren/slap_note. Read SPEC.md first (the product specification), then
+window), in the repository root. Read SPEC.md first (the product specification), then
 DECISIONS.md (why things are the way they are; open questions at the end). Branch: feature/v1.
 Review the whole codebase: git diff main..feature/v1 (everything after the specification commit).
 

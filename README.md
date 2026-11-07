@@ -133,7 +133,7 @@ Global shortcuts need no permission.
 
 - Notes: `~/Library/Application Support/SlapNote/notes.json` plus `notes.json.bak` (last good copy). If the main
   file is ever unreadable, SlapNote loads the backup and keeps the broken file as `notes.corrupt-<time>.json`.
-- Settings and shortcuts: `~/Library/Preferences/com.normanaugscheller.SlapNote.plist`
+- Settings and shortcuts: `~/Library/Preferences/io.github.normanaugscheller.SlapNote.plist`
 
 To uninstall:
 
@@ -145,7 +145,7 @@ To uninstall:
    rm -rf ~/Library/Application\ Support/SlapNote
    ```
    ```bash
-   defaults delete com.normanaugscheller.SlapNote
+   defaults delete io.github.normanaugscheller.SlapNote
    ```
 4. Optionally remove SlapNote from System Settings › Privacy & Security › Accessibility and from
    System Settings › Notifications.
@@ -162,6 +162,10 @@ To uninstall:
 | `SlapNote/Debug/` | Debug-only runtime self-test |
 | `SlapNoteTests/` | XCTest unit tests |
 | `scripts/` | Placeholder asset generator |
+
+## License
+
+[MIT](LICENSE). The only dependency, KeyboardShortcuts, is MIT-licensed as well.
 
 More: [DECISIONS.md](DECISIONS.md) (technical decisions and open questions),
 [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md), [ASSETS_NEEDED.md](ASSETS_NEEDED.md),

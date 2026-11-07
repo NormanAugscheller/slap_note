@@ -127,6 +127,30 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(file.notes[0].shape, .square, "unknown shape falls back")
     }
 
+    func testNewerVersionFileIsPreservedBeforeOverwrite() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let json = """
+        {"version":7,"notes":[{"id":"7B0E6A0C-5E64-4A43-9C55-52B3F1A4E111","text":"from the future","futureField":42,
+          "position":{"displayUUID":"X","relativeX":0.5,"relativeY":0.5}}]}
+        """
+        try Data(json.utf8).write(to: store.fileURL)
+        let loaded = store.load()
+        XCTAssertEqual(loaded.notes.first?.text, "from the future")
+        try store.save(loaded.notes)
+        let copy = try String(contentsOf: store.newerVersionCopyURL(version: 7), encoding: .utf8)
+        XCTAssertTrue(copy.contains("futureField"), "untouched copy keeps fields this version does not know")
+        XCTAssertEqual(NotesMigrator.storedVersion(of: try Data(contentsOf: store.fileURL)), NotesFile.currentVersion)
+    }
+
+    func testCurrentVersionFileMakesNoExtraCopy() throws {
+        let store = NoteStore(directory: directory)
+        try store.save([sampleNote()])
+        _ = store.load()
+        let files = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+        XCTAssertEqual(files, ["notes.json", "notes.json.bak"])
+    }
+
     func testSanitizeRepairsBrokenValues() throws {
         let json = """
         {"version":1,"notes":[{"id":"7B0E6A0C-5E64-4A43-9C55-52B3F1A4E111","text":"a","width":5000,"height":-3,

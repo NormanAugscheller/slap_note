@@ -1,6 +1,6 @@
 name: SlapNote
 options:
-  bundleIdPrefix: com.normanaugscheller
+  bundleIdPrefix: io.github.normanaugscheller
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -57,7 +57,7 @@ targets:
         NSPrincipalClass: NSApplication
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.normanaugscheller.SlapNote
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.normanaugscheller.SlapNote
         PRODUCT_NAME: SlapNote
         ENABLE_HARDENED_RUNTIME: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -74,7 +74,7 @@ targets:
       - target: SlapNoteCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.normanaugscheller.SlapNoteTests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.normanaugscheller.SlapNoteTests
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:

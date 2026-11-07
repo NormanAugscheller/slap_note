@@ -43,21 +43,31 @@ public enum ReminderSchedule {
         }.min()
     }
 
-    /// Short label for the note corner: "14:30" today, "Fri 14:30" within the next 6 days,
-    /// otherwise "12 Nov 14:30".
-    public static func label(for date: Date, now: Date, calendar: Calendar = .current) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        if calendar.isDate(date, inSameDayAs: now) {
-            f.dateFormat = "HH:mm"
-        } else {
-            let startNow = calendar.startOfDay(for: now)
-            let startDate = calendar.startOfDay(for: date)
-            let days = calendar.dateComponents([.day], from: startNow, to: startDate).day ?? 0
-            f.dateFormat = (days > 0 && days <= 6) ? "EEE HH:mm" : "d MMM HH:mm"
+    /// English (the UI language) with the user's region and 12/24-hour preference.
+    public static var displayLocale: Locale {
+        var components = Locale.Components(locale: .current)
+        components.languageComponents = Locale.Language.Components(languageCode: .english)
+        return Locale(components: components)
+    }
+
+    /// Short label for the note corner, following the user's 12/24-hour setting via `locale`:
+    /// time only today ("14:30" / "2:30 PM"), weekday + time within the next 6 days ("Fri 14:30"),
+    /// otherwise day + month + time ("20 Nov 14:30").
+    public static func label(for date: Date, now: Date, calendar: Calendar = .current, locale: Locale = ReminderSchedule.displayLocale) -> String {
+        func format(_ template: String) -> String {
+            let f = DateFormatter()
+            f.locale = locale
+            f.calendar = calendar
+            f.timeZone = calendar.timeZone
+            f.setLocalizedDateFormatFromTemplate(template)
+            return f.string(from: date).replacingOccurrences(of: ",", with: "")
         }
-        return f.string(from: date)
+        let time = format("jmm")
+        if calendar.isDate(date, inSameDayAs: now) { return time }
+        let startNow = calendar.startOfDay(for: now)
+        let startDate = calendar.startOfDay(for: date)
+        let days = calendar.dateComponents([.day], from: startNow, to: startDate).day ?? 0
+        // Date and time are formatted separately so locales cannot insert words like "at".
+        return format((days > 0 && days <= 6) ? "EEE" : "dMMM") + " " + time
     }
 }

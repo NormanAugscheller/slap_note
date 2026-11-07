@@ -31,6 +31,12 @@ public enum NotesMigrator {
 
     public enum MigrationError: Error { case notAnObject }
 
+    /// The `version` stored in the file (1 if missing), or nil if the data is not a JSON object.
+    public static func storedVersion(of data: Data) -> Int? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return (object["version"] as? Int) ?? 1
+    }
+
     /// Decodes file data, running migrations from the stored version up to `targetVersion`.
     /// A missing `version` key is treated as version 1. Files from a *newer* app version are
     /// decoded as far as possible (unknown fields are ignored).
@@ -101,6 +107,7 @@ public final class NoteStore {
     public func load() -> NoteLoadResult {
         if fileManager.fileExists(atPath: fileURL.path) {
             if let data = try? Data(contentsOf: fileURL), let file = try? NotesMigrator.decode(data) {
+                preserveIfNewer(data)
                 return NoteLoadResult(notes: file.notes, source: .main, recoveredFromCorruption: false)
             }
             // Corrupt main file: keep it for inspection, never overwrite the backup with it.
@@ -116,6 +123,20 @@ public final class NoteStore {
             return NoteLoadResult(notes: notes, source: .backup, recoveredFromCorruption: false)
         }
         return NoteLoadResult(notes: [], source: .empty, recoveredFromCorruption: false)
+    }
+
+    /// URL of the untouched copy kept when a file written by a newer SlapNote version is opened.
+    public func newerVersionCopyURL(version: Int) -> URL {
+        directory.appendingPathComponent("notes.v\(version).json")
+    }
+
+    /// A file from a newer app version may hold fields this version does not know; saving would drop
+    /// them. Keep one untouched copy so going back to the newer version loses nothing.
+    private func preserveIfNewer(_ data: Data) {
+        guard let version = NotesMigrator.storedVersion(of: data), version > NotesFile.currentVersion else { return }
+        let target = newerVersionCopyURL(version: version)
+        guard !fileManager.fileExists(atPath: target.path) else { return }
+        try? data.write(to: target, options: [.atomic])
     }
 
     private func loadBackup() -> [NoteRecord]? {
