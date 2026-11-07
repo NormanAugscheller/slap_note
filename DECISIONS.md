@@ -140,12 +140,13 @@ placeholder ships until the real asset exists.
 the previous file intact. If `notes.json` cannot be decoded at launch it is moved to
 `notes.corrupt-<timestamp>.json` (never overwriting the backup) and the backup is loaded and written back.
 
-**D32 · Saving is debounced by 500 ms** and done synchronously in `applicationWillTerminate`.
+**D32 · Saving is debounced by 500 ms** and done synchronously before quitting (`applicationShouldTerminate`).
+A failed save is not only logged: see D44.
 
 **D33 · Schema version 1; migrations operate on the raw JSON object** (`NotesMigrator`). A file without
 `version` is treated as version 1. All fields except `id` and `position` have defaults (tolerant decoding),
 unknown colors/shapes fall back to yellow/square, and values are sanitized (sizes clamped, strike indices
-filtered). Fields are only ever added; renames need a migration step. See Q5 for newer files.
+filtered). Fields are only ever added; renames need a migration step. See Q5 and D43 for newer files.
 
 **D34 · `ReminderRecord.acknowledged` was added** next to `fired` so a reminder that fired but was not
 noticed keeps wiggling after a restart. Missing in a file → defaults to `fired`.
@@ -155,19 +156,18 @@ noticed keeps wiggling after a restart. Missing in a file → defaults to `fired
 **D35 · Reminders use the system scheduler plus an in-app timer.** A `UNCalendarNotificationTrigger` is
 scheduled per pending reminder (delivered even if SlapNote is not running); one in-app timer armed for the
 earliest pending reminder triggers wiggle + glow. At launch, reminders that passed while the app was closed
-fire their wiggle, and their notification is posted only if the system has not already delivered it.
+fire their wiggle; SlapNote posts a notification itself only for reminders macOS never accepted (D45).
 Permission is requested the first time a reminder is set, never at launch.
 
 **D36 · Clicking a notification raises all notes (Peek) for 3 s and makes that note wiggle and glow.**
+The highlight and the held Peek shortcut are separate reasons (D49).
 Public APIs cannot switch to another Space, so a note on a different Space is not brought into view.
 
 **D37 · Note from selection** checks `AXIsProcessTrusted()`. Without permission it shows a short
 explanation window; its button triggers the system prompt (which also adds SlapNote to the Accessibility
-list) and opens the Privacy › Accessibility pane. With permission it snapshots every pasteboard item and
-representation, posts ⌘C with only the Command flag (so the still-held ⌃⌥ does not leak in), polls the
-pasteboard change count for up to 0.5 s, reads the string and restores the snapshot. If nothing changed,
-the pasteboard is not touched and an empty note is created. Contents are never logged; text is capped at
-10 000 characters.
+list) and opens the Privacy › Accessibility pane. With permission it reads the selection directly through
+Accessibility and falls back to ⌘C only where an app does not provide it (D47). Contents are never logged;
+text is capped at 10 000 characters.
 
 **D38 · Login-item launch detection** (spec §7). There is no API that says "launched by
 `SMAppService.mainApp`". SlapNote combines two signals (`LaunchDetector`, decision in
@@ -211,9 +211,9 @@ The owner delegated these decisions ("choose the most sensible free option"; the
 - **Q3 · Bundle identifier → `io.github.normanaugscheller.SlapNote`** (D6).
 - **Q4 · Time format → follow the system's 12/24-hour setting** (D26).
 - **Q5 · Files from a newer version → keep an untouched copy.** When `notes.json` was written by a newer format
-  version, SlapNote writes `notes.v<version>.json` once before it ever overwrites the file, then works normally.
-  Going back to the newer app loses nothing; refusing to save would have been worse (every edit lost).
-  Tested in `PersistenceTests.testNewerVersionFileIsPreservedBeforeOverwrite`.
+  version, SlapNote keeps a verified copy of the loaded file before it ever overwrites it, then works normally.
+  Going back to the newer app loses nothing. Refusing to save is only the fallback when no copy can be made
+  (D43, tightened after the Codex review).
 - **Q6 · ⌘Z reach → unchanged.** Not stealing focus when the user clicks a note matters more than ⌘Z; ⌃⌥Z works
   everywhere.
 - **Q7 · Full-screen Spaces → macOS default.** Blocking placement there would be surprising; the case is rare.
@@ -221,6 +221,56 @@ The owner delegated these decisions ("choose the most sensible free option"; the
   manual launch in the first 90 s after login does not open the settings (opening the app again does).
 - **Q9 · Peek default → ⌃⌥Space as specified**, documented in the README with how to change it. Most users have
   a single input source, where there is no conflict.
+
+## Codex review, round 1 (on `25157ac`)
+
+All seven findings were confirmed against the code and fixed with the owner's approval, one commit each.
+
+**D43 · A file from a newer version is never overwritten without a verified copy** (finding 1). `NoteStore`
+copies exactly the loaded bytes — main file or backup — before anything is written, reads the copy back and
+compares it. `notes.v<N>.json` is used if free or already identical; otherwise a new name
+`notes.v<N>-<timestamp>.json` (never overwriting). If no verified copy can be made, `writeBlock` is set and
+every `save` throws `StoreError.writesBlocked` until the next launch. This replaces the "write once with
+`try?`" of Q5, which lost data when the copy failed or an older copy already had the name.
+
+**D44 · Failed saves are visible** (finding 2). `NoteManager` tracks unsaved changes and a `SaveProblem`
+(write failed / writes blocked). A failed write is retried after 5 s, doubling up to 5 min. The user sees one
+alert per problem (Try Again / Show in Finder / OK — not on every retry, and only once no note is being
+placed or edited); the menu bar icon, when shown, switches to a warning symbol with "Notes Not Saved — Try
+Again". Quitting with unsaved changes asks Try Again / Show in Finder (cancels the quit) / Quit Anyway. This
+dialog can also appear during logout; macOS then reports that SlapNote stopped the logout, which is the
+standard behavior of apps with unsaved changes.
+
+**D45 · macOS owns the notification of every reminder it accepted** (finding 4). `ReminderRecord` gained
+`scheduledWithSystem` (tolerant decoding, default false), set when `UNUserNotificationCenter.add` succeeds.
+A due reminder with the flag gets only wiggle and glow from SlapNote, even if the user dismissed the system's
+notification. Notification identifiers are per reminder instance (`<note UUID>@<unix time>`), so an old
+delivered notification cannot hide a new one, and a late own post replaces a still-pending request with the
+same identifier instead of showing twice. The 3-second on-time fallback was removed.
+
+**D46 · The system trigger is built from the stored instant in UTC** (finding 5), with calendar and time
+zone in the components. Note and notification are due at the same absolute time after a time zone change
+(a reminder set for 09:00 in Vienna fires at 00:00 in Los Angeles), and the repeated hour at the end of
+daylight saving time is unambiguous. The label on the note shows that instant in the current time zone.
+
+**D47 · Note from selection reads through Accessibility first** (finding 3). This deviates from the spec's
+"synthesize ⌘C" implementation note, with the owner's approval: `kAXSelectedTextAttribute` of the focused
+element never touches the clipboard. Only if an app returns no selected text this way (several apps return an
+empty string), the ⌘C fallback runs, guarded by `CopyFallback`: one grab at a time (a second press is
+ignored); no copy at all if any pasteboard representation cannot be read back (it would be lost); after ⌘C,
+exactly one change-count step is the copy, more steps mean another writer and nothing is read or restored;
+restore only if nobody wrote after the copy; timeout 1 s, and a single late copy within the next 2 s is
+undone. When the clipboard cannot be protected SlapNote beeps and creates no note. The remaining risk: if the
+user copies something themselves in the 2 s after a timed-out grab, that copy is replaced by the earlier
+clipboard — chosen over leaving a late copy that destroys the earlier clipboard for good.
+
+**D48 · Notes are laid out for their destination display before they move** (finding 6). `place` resolves
+the target display, recomputes auto-grow height and the internal scroller for its visible frame
+(`NoteController.fit(to:)`), then positions the note with that size. Applies to launch, restore and display
+changes (stuck and editing notes).
+
+**D49 · Peek has two independent reasons** (finding 7, `PeekState`): the held shortcut and the 3-second
+notification highlight. Peek stays on while either holds; a new notification click restarts the highlight.
 
 ## Open questions for the owner
 

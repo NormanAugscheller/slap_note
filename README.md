@@ -103,8 +103,10 @@ On the first launch the settings window opens with a short intro. SlapNote has n
 
 SlapNote asks for permissions only when a feature needs them, never at launch:
 
-- **Accessibility** — only for *Note from selection*. SlapNote presses ⌘C for you in the frontmost app, reads the
-  copied text and puts your clipboard contents back. Nothing is stored or sent anywhere. Without the permission
+- **Accessibility** — only for *Note from selection*. SlapNote reads the selected text of the frontmost app. Apps
+  that do not share their selection that way get ⌘C pressed for you; SlapNote reads the copied text and puts
+  your clipboard contents back (if it cannot do that safely, it beeps and leaves the clipboard alone). Nothing
+  is stored or sent anywhere. Without the permission
   SlapNote shows a short explanation and a button that opens System Settings › Privacy & Security ›
   Accessibility.
 - **Notifications** — only for reminders, requested the first time you set one. Without it, due notes still

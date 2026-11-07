@@ -101,6 +101,8 @@ For a clean first launch, quit SlapNote and reset its data first:
 - [ ] D7. Press `⌃⌥H`. **Expected:** all notes fade out; menu bar icon (if on) changes to the crossed-out eye. Quit and
   relaunch: still hidden. `⌃⌥H` again shows them.
 - [ ] D8. While hidden, press `⌃⌥N`. **Expected:** notes become visible again (decision D22).
+- [ ] D9. Click a reminder notification, then press and hold `⌃⌥Space` for 5 s. **Expected:** notes stay raised until
+  you let go, not only for 3 s (D49).
 
 ## E. Reminders (criterion 11)
 
@@ -114,7 +116,11 @@ For a clean first launch, quit SlapNote and reset its data first:
 - [ ] E5. Double click a note with a reminder, `⌘T`, Remove. **Expected:** label disappears; no notification later.
 - [ ] E6. Set a reminder 2 minutes ahead, quit SlapNote, wait until it has passed, launch again. **Expected:** the note
   wiggles; exactly one notification in Notification Center (not two).
+- [ ] E6b. As E6, but dismiss the notification (close it in Notification Center) before launching again. **Expected:**
+  the note wiggles; no new notification appears (D45).
 - [ ] E7. Set a reminder, quit and relaunch before it is due. **Expected:** label still there and it fires on time.
+- [ ] E8. Set a reminder 5 minutes ahead, then change the time zone in System Settings › General › Date & Time.
+  **Expected:** the label shows the new local time; wiggle and notification still come at the same moment (D46).
 
 ## F. Aging (criterion 12)
 
@@ -129,7 +135,10 @@ For a clean first launch, quit SlapNote and reset its data first:
   nothing else happens. Button opens System Settings › Privacy & Security › Accessibility (SlapNote listed).
 - [ ] G2. Grant the permission, select text, put something recognizable on the clipboard beforehand, press `⌃⌥S`.
   **Expected:** a hanging note with the selected text; the clipboard still contains the old content (paste to check).
+  Repeat in an app that does not expose its selection to Accessibility (for example a web page in a Chromium
+  browser or an Electron app). **Expected:** same result through the ⌘C fallback.
 - [ ] G3. Press `⌃⌥S` with nothing selected. **Expected:** empty hanging note; clipboard unchanged.
+- [ ] G3b. Press `⌃⌥S` twice quickly in such an app. **Expected:** one note; clipboard still has the old content.
 - [ ] G4. Rebuild the app (ad-hoc signature changes) and try again. **Expected (known limitation):** permission may need
   to be removed and re-added.
 
@@ -141,12 +150,20 @@ For a clean first launch, quit SlapNote and reset its data first:
   is there (saved after 0.5 s).
 - [ ] H3. Quit, write garbage into `~/Library/Application Support/SlapNote/notes.json`, launch. **Expected:** notes from
   the backup appear; a `notes.corrupt-….json` file exists.
+- [ ] H4. Make the data folder read-only (`chmod 555 ~/Library/Application\ Support/SlapNote`), change a note.
+  **Expected:** within a second an alert "SlapNote can’t save your notes"; menu bar icon (if on) shows a warning.
+  Quit with ⌘Q. **Expected:** "Quit without saving your latest changes?" with Try Again / Show in Finder / Quit
+  Anyway. `chmod 755` the folder, choose Try Again. **Expected:** SlapNote quits; the change is there after relaunch.
+- [ ] H5. Quit, set `"version": 99` in `notes.json`, make the folder read-only, launch. **Expected:** notes appear and
+  an alert says changes are not saved; `notes.json` is unchanged after quitting (D43). Restore permissions after.
 
 ## I. Displays and Spaces (criterion 15)
 
 - [ ] I1. Slap notes on the external display. Unplug it. **Expected:** those notes move to the built-in display, fully
   visible. Plug it back in. **Expected:** they move back to their places.
 - [ ] I2. Quit, unplug the external display, launch, plug it back in. **Expected:** same as I1.
+- [ ] I2b. On a tall external display make a note so long it nearly fills the screen height, then unplug the display.
+  **Expected:** on the smaller display the note is fully visible and scrolls inside (D48).
 - [ ] I3. Slap a note on Space 1, switch to Space 2. **Expected:** the note is not visible on Space 2. Back on Space 1 it is.
 - [ ] I4. Relaunch on Space 2. **Expected (known limitation):** all notes appear on Space 2.
 - [ ] I5. Mission Control. **Expected:** notes stay in place like desktop items; they are not ⌘\`-cycled.
