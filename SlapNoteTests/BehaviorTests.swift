@@ -350,6 +350,12 @@ final class CopyFallbackTests: XCTestCase {
         XCTAssertEqual(CopyFallback.outcome(before: 10, current: 10, elapsed: CopyFallback.timeout), .timedOut)
     }
 
+    func testChangeAfterTheTimeoutIsNotTakenAsTheCopy() {
+        XCTAssertEqual(CopyFallback.outcome(before: 10, current: 11, elapsed: 1.2), .timedOut)
+        XCTAssertEqual(CopyFallback.outcome(before: 10, current: 11, elapsed: CopyFallback.timeout), .timedOut)
+        XCTAssertEqual(CopyFallback.outcome(before: 10, current: 12, elapsed: 1.2), .timedOut)
+    }
+
     func testAnotherWriterMakesThePasteboardUnclear() {
         XCTAssertEqual(CopyFallback.outcome(before: 10, current: 12, elapsed: 0.1), .unclear)
         XCTAssertFalse(CopyFallback.mayRestore(before: 10, current: 12), "someone wrote after the copy: keep theirs")

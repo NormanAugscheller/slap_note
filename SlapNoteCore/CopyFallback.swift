@@ -12,15 +12,18 @@ public enum CopyFallback {
         case copied
         /// More than one change: someone else wrote too. Do not read, do not restore.
         case unclear
-        /// No change before the timeout. Nothing to read, nothing to restore.
+        /// The timeout passed (whatever changed by then). Nothing to read, nothing to restore.
         case timedOut
     }
 
     public static let timeout: TimeInterval = 1.0
 
+    /// The deadline wins: a change seen only after the timeout cannot be told apart from a copy by the
+    /// user, so it is neither read nor restored over.
     public static func outcome(before: Int, current: Int, elapsed: TimeInterval, timeout: TimeInterval = timeout) -> Outcome {
+        if elapsed >= timeout { return .timedOut }
         switch current - before {
-        case 0: return elapsed >= timeout ? .timedOut : .waiting
+        case 0: return .waiting
         case 1: return .copied
         default: return .unclear
         }
