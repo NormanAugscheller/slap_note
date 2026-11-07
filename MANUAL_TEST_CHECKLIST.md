@@ -123,6 +123,11 @@ For a clean first launch, quit SlapNote and reset its data first:
   **Expected:** the label shows the new local time; wiggle and notification still come at the same moment (D46).
 - [ ] E9. Set a reminder 3 minutes ahead, right click the note away, wait until the time has passed, press `⌃⌥Z`.
   **Expected:** the restored note wiggles and exactly one notification appears (D53).
+- [ ] E10. In a user account where SlapNote has never asked for notification permission, set the first reminder
+  2 minutes ahead and answer the permission question only after about 30 seconds. **Expected:** the notification
+  comes on time (D60).
+- [ ] E11. Set a reminder 1 minute ahead, then edit the note's first line about 2 seconds before it is due.
+  **Expected:** exactly one notification (D61).
 
 ## F. Aging (criterion 12)
 
@@ -162,6 +167,11 @@ For a clean first launch, quit SlapNote and reset its data first:
   Anyway. `chmod 755` the folder, choose Try Again. **Expected:** SlapNote quits; the change is there after relaunch.
 - [ ] H5. Quit, set `"version": 99` in `notes.json`, make the folder read-only, launch. **Expected:** notes appear and
   an alert says changes are not saved; `notes.json` is unchanged after quitting (D43). Restore permissions after.
+- [ ] H5b. Continue H5 without quitting: `chmod 755` the folder, change a note (or wait up to a minute).
+  **Expected:** the warning goes away, a `notes.v99.json` copy exists and the change is saved (D59).
+- [ ] H5c. Quit, `chmod 000 ~/Library/Application\ Support/SlapNote/notes.json.bak`, launch, change a note.
+  **Expected:** alert "SlapNote doesn’t save changes right now" naming `notes.json.bak`; the file is untouched.
+  `chmod 644` it. **Expected:** the next save succeeds without a restart (D57).
 
 - [ ] H6. Press `⌃⌥N`, type a few words, and press `⌘Q` while the note still hangs.
   **Expected:** after relaunch the note is stuck where it hung (D52).

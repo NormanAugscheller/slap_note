@@ -10,8 +10,8 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
     var onDue: (([UUID]) -> Void)?
     /// Called on the main actor when macOS accepted the notification for a note's reminder at a date.
     var onScheduled: ((UUID, Date) -> Void)?
-    /// Called on the main actor when a still-pending reminder lost its system request (it was replaced
-    /// after a change, or macOS refused it), so SlapNote has to announce it itself unless a new one is accepted.
+    /// Called on the main actor when a still-pending reminder lost its system request (it was moved to
+    /// another time, or macOS refused it), so SlapNote has to announce it itself unless a new one is accepted.
     var onUnscheduled: ((UUID) -> Void)?
 
     private var timer: Timer?
@@ -35,11 +35,20 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Asks for permission the first time a reminder is set (never at launch).
+    /// Asks for permission the first time a reminder is set (never at launch). Requests added while the
+    /// question was open may have been refused, so the reminders are synced again once it is answered.
     func requestAuthorizationIfNeeded() {
         guard !authorizationRequested else { return }
         authorizationRequested = true
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        center.requestAuthorization(options: [.alert, .sound]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.resync() }
+            }
+        }
+    }
+
+    private func resync() {
+        sync(notes: notesProvider?() ?? [])
     }
 
     private struct Scheduled: Equatable {
@@ -53,6 +62,9 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
     /// The registration each note's entry in `scheduled` belongs to; late answers of older ones are ignored.
     private var registrations: [UUID: Int] = [:]
     private var nextRegistration = 0
+    /// Refused registrations in a row per note; each one is retried after a growing delay, at most this often.
+    private var failedRegistrations: [UUID: Int] = [:]
+    static let maxRegistrationRetries = 3
 
     /// Brings the scheduled notifications in line with the pending reminders of `notes`. Only changed
     /// reminders are removed and re-added, so a save right before a reminder is due cannot drop it.
@@ -65,13 +77,18 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
                                         date: r.date, title: Self.title(for: note))
         }
         let stale = scheduled.filter { id, s in wanted[id] != s }
-        if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: stale.values.map(\.identifier)) }
+        // Same identifier (same note, same time, only the title changed): adding the new request replaces
+        // the pending one in one step. Removing it first would leave a moment without an accepted request,
+        // in which the old one may still fire and SlapNote would announce the reminder a second time.
+        let replaced = stale.filter { id, s in wanted[id]?.identifier == s.identifier }
+        let removed = stale.filter { id, _ in replaced[id] == nil }
+        if !removed.isEmpty { center.removePendingNotificationRequests(withIdentifiers: removed.values.map(\.identifier)) }
         for id in stale.keys {
             scheduled[id] = nil
             registrations[id] = nil
-            // Still pending but changed: the old acceptance no longer counts. (Reminders that are due,
-            // fired or removed keep their state: a due one was already delivered by the system.)
-            if wanted[id] != nil { onUnscheduled?(id) }
+            // Still pending but moved to another time: the old acceptance no longer counts. (Reminders that
+            // are due, fired or removed keep their state: a due one was already delivered by the system.)
+            if removed[id] != nil, wanted[id] != nil { onUnscheduled?(id) }
         }
         for (id, item) in wanted where scheduled[id] == nil {
             let content = UNMutableNotificationContent()
@@ -100,7 +117,16 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
             scheduled[id] = nil
             registrations[id] = nil
             onUnscheduled?(id)
+            let failures = (failedRegistrations[id] ?? 0) + 1
+            failedRegistrations[id] = failures
+            if failures <= Self.maxRegistrationRetries {
+                // 2 s, 4 s, 8 s. A sync in between (every save) tries again too.
+                DispatchQueue.main.asyncAfter(deadline: .now() + pow(2, Double(failures))) { [weak self] in
+                    MainActor.assumeIsolated { self?.resync() }
+                }
+            }
         } else {
+            failedRegistrations[id] = nil
             onScheduled?(id, date)
         }
     }
@@ -109,6 +135,7 @@ final class ReminderCoordinator: NSObject, UNUserNotificationCenterDelegate {
         if let s = scheduled[noteID] { center.removePendingNotificationRequests(withIdentifiers: [s.identifier]) }
         scheduled[noteID] = nil
         registrations[noteID] = nil
+        failedRegistrations[noteID] = nil
     }
 
     static func title(for note: NoteRecord) -> String {
