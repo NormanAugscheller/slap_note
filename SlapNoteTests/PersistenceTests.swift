@@ -205,6 +205,58 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(NotesMigrator.storedVersion(of: try Data(contentsOf: store.fileURL)), NotesFile.currentVersion)
     }
 
+    func testNewerBackupBesideAnOlderMainFileIsPreservedToo() throws {
+        let store = NoteStore(directory: directory)
+        try store.save([sampleNote(text: "current main")])
+        let backup = Data(futureJSON("newer backup").utf8)
+        try backup.write(to: store.backupURL)
+        let loaded = store.load()
+        XCTAssertEqual(loaded.source, .main)
+        XCTAssertNil(store.writeBlock)
+        try store.save(loaded.notes)
+        XCTAssertEqual(store.preservedCopyURLs.count, 1)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.preservedCopyURLs.first)), backup)
+    }
+
+    func testNewerBackupBlocksWritesWhenItCannotBeCopied() throws {
+        let store = NoteStore(directory: directory)
+        try store.save([sampleNote(text: "current main")])
+        let main = try Data(contentsOf: store.fileURL)
+        let backup = Data(futureJSON("newer backup").utf8)
+        try backup.write(to: store.backupURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path) }
+        let loaded = store.load()
+        XCTAssertEqual(store.writeBlock, .newerVersionNotPreserved(version: 7))
+        XCTAssertThrowsError(try store.save(loaded.notes))
+        XCTAssertEqual(try Data(contentsOf: store.backupURL), backup)
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), main)
+    }
+
+    func testSymbolicLinkToTheMainFileIsNotAcceptedAsCopy() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let original = Data(futureJSON("linked").utf8)
+        try original.write(to: store.fileURL)
+        try FileManager.default.createSymbolicLink(at: store.newerVersionCopyURL(version: 7), withDestinationURL: store.fileURL)
+        let loaded = store.load()
+        let copy = try XCTUnwrap(store.preservedCopyURL)
+        XCTAssertNotEqual(copy, store.newerVersionCopyURL(version: 7))
+        try store.save(loaded.notes)
+        XCTAssertEqual(try Data(contentsOf: copy), original, "the real copy survives the save")
+    }
+
+    func testCopyRemovedAfterLoadIsMadeAgainBeforeSaving() throws {
+        let store = NoteStore(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let original = Data(futureJSON("removed copy").utf8)
+        try original.write(to: store.fileURL)
+        let loaded = store.load()
+        try FileManager.default.removeItem(at: XCTUnwrap(store.preservedCopyURL))
+        try store.save(loaded.notes)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(store.preservedCopyURL)), original)
+    }
+
     func testCurrentVersionFileMakesNoExtraCopy() throws {
         let store = NoteStore(directory: directory)
         try store.save([sampleNote()])
