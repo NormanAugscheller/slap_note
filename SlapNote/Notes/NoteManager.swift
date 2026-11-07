@@ -15,6 +15,9 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
     private var lastStyle: NoteStyle?
     private var saveWorkItem: DispatchWorkItem?
     private(set) var isPeeking = false
+    private var peekState = PeekState()
+    private var peekHighlightEnd: DispatchWorkItem?
+    static let peekHighlightDuration: TimeInterval = 3
     private var editingNote: NoteController?
     private var editMonitors: [Any] = []
     private var resignObserver: NSObjectProtocol?
@@ -329,7 +332,31 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
     }
 
     /// Peek: while held, raise every note above all windows; on release, return them.
+    /// The Peek shortcut is pressed (true) or released (false).
     func setPeek(_ on: Bool) {
+        peekState.held = on
+        applyPeek()
+    }
+
+    /// Raises the notes for a few seconds, independently of the held shortcut. Calling it again
+    /// restarts the time.
+    private func highlightWithPeek() {
+        peekHighlightEnd?.cancel()
+        peekState.highlighted = true
+        applyPeek()
+        let end = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.peekState.highlighted = false
+                self.applyPeek()
+            }
+        }
+        peekHighlightEnd = end
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.peekHighlightDuration, execute: end)
+    }
+
+    private func applyPeek() {
+        let on = peekState.isActive
         guard on != isPeeking else { return }
         isPeeking = on
         for c in notes where c.mode == .stuck || c.mode == .editing {
@@ -509,13 +536,10 @@ final class NoteManager: NSObject, NoteControllerDelegate, PlacementSessionDeleg
         scheduleSave()
     }
 
-    private func notificationClicked(_ id: UUID) {
+    func notificationClicked(_ id: UUID) {
         guard let c = controller(for: id) else { return }
-        setPeek(true)
+        highlightWithPeek()
         c.startAttention()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            self?.setPeek(false)
-        }
     }
 
     // MARK: Aging, settings, motion

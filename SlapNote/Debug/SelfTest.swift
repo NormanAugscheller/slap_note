@@ -104,7 +104,17 @@ final class SelfTest {
             self.check(c?.isAttentionActive == true, "due note wiggles and glows")
             self.check(c?.view.reminderLabel.isHidden == false, "reminder time is shown on the note")
         }
-        step("discard", after: 0.3) {
+        step("peek held over highlight", after: 0.3) {
+            guard let c = m.notes.first else { return }
+            m.setPeek(true)
+            m.notificationClicked(c.record.id)
+        }
+        step("highlight ended", after: NoteManager.peekHighlightDuration + 0.4) {
+            self.check(m.isPeeking, "held peek survives the end of the notification highlight")
+            m.setPeek(false)
+            self.check(!m.isPeeking, "releasing the shortcut ends peek")
+        }
+        step("discard", after: 0.5) {
             guard let c = m.notes.first else { return }
             m.noteRequestsDiscard(c)
             self.check(m.notes.isEmpty && m.canRestore, "right click discards and remembers the note")

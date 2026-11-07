@@ -350,3 +350,23 @@ final class CopyFallbackTests: XCTestCase {
         XCTAssertTrue(CopyFallback.snapshotIsComplete(typesPerItem: [], readablePerItem: []))
     }
 }
+
+final class PeekStateTests: XCTestCase {
+    func testHeldShortcutOutlastsTheHighlight() {
+        var state = PeekState()
+        state.highlighted = true
+        state.held = true
+        state.highlighted = false // the 3-second highlight ends while the shortcut is still held
+        XCTAssertTrue(state.isActive)
+        state.held = false
+        XCTAssertFalse(state.isActive)
+    }
+
+    func testReleasingTheShortcutKeepsTheHighlight() {
+        var state = PeekState()
+        state.highlighted = true
+        state.held = true
+        state.held = false
+        XCTAssertTrue(state.isActive)
+    }
+}
